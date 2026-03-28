@@ -226,13 +226,16 @@ async function startServer() {
   }));
 
   app.use(cors({
-    origin: isProduction
-      ? process.env.FRONTEND_URL || 'https://yourdomain.com'
-      : ['http://localhost:3000', 'http://localhost:5173'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }));
+  origin: [
+    'http://https://localhost:3000',
+    'http://localhost:5173',
+    'http://ritchierealty.netlify.app'   // ← Add your actual Netlify URL
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
