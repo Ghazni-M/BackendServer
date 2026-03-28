@@ -1,0 +1,16 @@
+# Normalize all text files
+* text=auto
+
+# Force specific file types
+*.js text
+*.ts text
+*.tsx text
+*.json text
+*.css text
+*.html text
+
+# Binary files (no conversion)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
