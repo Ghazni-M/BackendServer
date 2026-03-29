@@ -225,21 +225,23 @@ async function startServer() {
     },
   }));
 
-  app.use(cors({
+ app.use(cors({
   origin: [
-    'http://https://localhost:3000',
+    'http://localhost:3000',
     'http://localhost:5173',
-    'http://ritchierealty.netlify.app'   // ← Add your actual Netlify URL
+    'https://www.ritchierealty.netlify.app',     // your Netlify site
+    'https://ritchierealty.netlify.app',         // without www
+    'https://backendserver-k3hd.onrender.com'    // optional: allow backend itself
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use('/uploads', express.static(uploadDir));
+
 
   // ── Auth routes ───────────────────────────────────────────────────────
 
@@ -768,12 +770,18 @@ if (!isProduction) {
     console.warn('Vite dev server could not be started:', err);
   }
 } else {
-  app.use(express.static(path.resolve(__dirname, 'dist')));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.resolve(__dirname, 'dist/index.html'));
+  // Production: API-only mode (frontend is hosted on Netlify)
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ success: false, error: 'API endpoint not found' });
+    }
+    res.json({
+      success: true,
+      message: "Ritchie Realty Backend API is running successfully",
+      version: "1.0.0"
+    });
   });
 }
-
   // ── Global error handler ──────────────────────────────────────────────
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
