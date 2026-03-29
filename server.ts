@@ -229,13 +229,14 @@ async function startServer() {
   origin: [
     'http://localhost:3000',
     'http://localhost:5173',
-    'https://www.ritchierealty.netlify.app',     // your Netlify site
-    'https://ritchierealty.netlify.app',         // without www
-    'https://backendserver-k3hd.onrender.com'    // optional: allow backend itself
+    'https://ritchierealty.netlify.app',
+    'https://www.ritchierealty.netlify.app',
+    'https://backendserver-k3hd.onrender.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
   app.use(express.json({ limit: '1mb' }));
