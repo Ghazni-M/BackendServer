@@ -703,34 +703,30 @@ app.post('/api/subscribe', async (req, res) => {
     });
   });
 
- // ── SPA Fallback (Development only) ───────────────────────────────────
-  if (!isProduction) {
-    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
-      const url = req.originalUrl;
-      try {
-        const template = await vite.transformIndexHtml(
-          url,
-          fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8')
-        );
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (e: any) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
+// ── Vite Dev Server (Development ONLY) ─────────────────────────────────
+let vite: any;
+if (!isProduction) {
+  try {
+    const { createServer } = await import('vite');
+
+    vite = await createServer({
+      server: { 
+        middlewareMode: true,
+        hmr: { port: 24678 }
+      },
+      appType: 'custom',           // Best for Express + API
+      optimizeDeps: { force: true },
+      // Optional: explicitly pass config if needed
+      // configFile: './vite.config.ts',
     });
-  } else {
-    // Production health check
-    app.get('*', (req, res) => {
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ success: false, error: 'API endpoint not found' });
-      }
-      res.json({
-        success: true,
-        message: "Ritchie Realty Backend API is running successfully",
-        version: "1.0.0"
-      });
-    });
+
+    app.use(vite.middlewares);
+    console.log('✅ Vite dev middleware attached successfully');
+  } catch (err: any) {
+    console.error('❌ Failed to start Vite dev server:', err.message);
+    // Do not crash the whole server
   }
+}
 
   // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
