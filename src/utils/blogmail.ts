@@ -14,11 +14,11 @@ const env = {
 };
 
 if (!env.host || !env.user || !env.pass) {
-  console.warn('[WELCOME EMAIL] Missing SMTP credentials (SMTP_HOST, SMTP_USER, or SMTP_PASS). Emails will be logged only.');
+  console.warn('[WELCOME EMAIL] Missing SMTP credentials. Real emails disabled — will only log.');
 }
 
 // ────────────────────────────────────────────────
-// Create transporter with timeouts (prevents hanging)
+// Create transporter with timeouts
 // ────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
   host: env.host,
@@ -28,24 +28,23 @@ const transporter = nodemailer.createTransport({
     user: env.user,
     pass: env.pass,
   },
-  // 🔥 Critical for Render Free tier - fail fast
-  connectionTimeout: 8000,   // 8 seconds
+  // Critical: Fail fast to prevent 504 timeouts
+  connectionTimeout: 8000,
   greetingTimeout: 8000,
-  socketTimeout: 12000,      // 12 seconds
+  socketTimeout: 12000,
 });
 
 // ────────────────────────────────────────────────
 // Send Welcome Email
 // ────────────────────────────────────────────────
 export async function sendWelcomeEmail(to: string): Promise<void> {
-  // If credentials missing → just log (no real email)
   if (!env.host || !env.user || !env.pass) {
     console.log('\n' + '═'.repeat(60));
     console.log('          WELCOME EMAIL (NO SMTP CONFIGURED)          ');
     console.log('═'.repeat(60));
     console.log(`To: ${to}`);
     console.log('Welcome to Ritchie Realty Newsletter!');
-    console.log('Real email sending is disabled — configure SMTP env vars.');
+    console.log('Real sending disabled — configure SMTP env vars on Render.');
     console.log('═'.repeat(60) + '\n');
     return;
   }
@@ -96,13 +95,12 @@ The Ritchie Realty Team`,
       `,
     });
 
-    console.log(`✅ [WELCOME EMAIL] Sent successfully to ${to}`);
-    console.log(`   Message ID: ${info.messageId}`);
+    console.log(`✅ [WELCOME EMAIL] Sent successfully to ${to} → Message ID: ${info.messageId}`);
   } catch (err: any) {
     console.error(`❌ [WELCOME EMAIL] Failed to send to ${to}`);
     console.error(`   Error: ${err.message}`);
     if (err.code) console.error(`   Code: ${err.code}`);
     if (err.response) console.error(`   SMTP Response: ${err.response}`);
-    // Do NOT throw — we use fire-and-forget in the route
+    // Do NOT throw - we use fire-and-forget
   }
 }
