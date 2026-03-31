@@ -163,18 +163,14 @@ async function startServer() {
   app.use('/uploads', express.static(uploadDir));
   app.use(requestTimeout(30000));
 
-  // ── Vite Dev Server (Development ONLY) ─────────────────────────────────
-  let vite: any;   // ← Declared only once here
+  // Vite Dev Server
+  let vite: any = null;
 
   if (!isProduction) {
     try {
       const { createServer } = await import('vite');
-
       vite = await createServer({
-        server: { 
-          middlewareMode: true,
-          hmr: { port: 24678 }
-        },
+        server: { middlewareMode: true, hmr: { port: 24678 } },
         appType: 'custom',
         optimizeDeps: { force: true },
       });
@@ -183,8 +179,10 @@ async function startServer() {
       console.log('✅ Vite dev middleware attached successfully');
     } catch (err: any) {
       console.error('❌ Failed to start Vite dev server:', err.message);
+      console.error('   → Check that @vitejs/plugin-react is installed and vite.config.ts is valid');
     }
   }
+
   // ── Auth routes ───────────────────────────────────────────────────────
   app.post('/api/auth/login', authLimiter, async (req, res) => {
     // ... (your original login handler - unchanged)
@@ -668,10 +666,14 @@ app.post('/api/subscribe', async (req, res) => {
   });
 
 
-  // ── SPA Fallback (Development) ───────────────────────────────────────
+  // SPA Fallback - Safe version
   if (!isProduction) {
     app.use('*', async (req: Request, res: Response, next: NextFunction) => {
       if (req.path.startsWith('/api/')) return next();
+
+      if (!vite) {
+        return res.status(503).send('Vite dev server failed to start. Check server logs.');
+      }
 
       try {
         const template = await vite.transformIndexHtml(
@@ -680,30 +682,26 @@ app.post('/api/subscribe', async (req, res) => {
         );
         res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
       } catch (e: any) {
-        vite?.ssrFixStacktrace(e);
+        console.error('SPA fallback error:', e.message);
+        vite.ssrFixStacktrace?.(e);
         next(e);
       }
     });
   } else {
     app.get('*', (req, res) => {
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ success: false, error: 'API endpoint not found' });
-      }
-      res.json({ success: true, message: 'Ritchie Realty Backend API is running' });
+      if (req.path.startsWith('/api/')) return res.status(404).json({ success: false, error: 'API not found' });
+      res.json({ success: true, message: 'Backend API running' });
     });
   }
 
   // Global error handler
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, _req: Request, res: Response) => {
     console.error('Global error:', err);
-    const status = err.status || 500;
-    res.status(status).json({ success: false, error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({ success: false, error: err.message || 'Internal server error' });
   });
 
-  // Start server
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
