@@ -319,34 +319,37 @@ app.use('/uploads', express.static(uploadDir));
   }
 
   try {
+    // Find user
     const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
     if (!user) {
-      return res.json({ success: true });
+      return res.json({ success: true }); // Don't reveal if email exists
     }
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
 
+    // ✅ FIXED: Now has 2 placeholders and 2 parameters
     db.prepare(`
       UPDATE users
-      SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
+      SET reset_token = ?, 
+          reset_token_expiry = strftime('%s','now') + 3600
+      WHERE id = ?
     `).run(hashedToken, user.id);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app';
-    const url = `${frontendUrl}/reset-password/${rawToken}`;
+    const resetUrl = `${frontendUrl}/reset-password/${rawToken}`;
 
-    // 🔥 FIRE-AND-FORGET: Don't await — prevent timeout
-    sendPasswordResetEmail(email, url)
-      .then(() => console.log(`[PASSWORD RESET] Email sent to ${email}`))
+    // Fire-and-forget email
+    sendPasswordResetEmail(email, resetUrl)
+      .then(() => console.log(`[PASSWORD RESET] Email queued for ${email}`))
       .catch((err: any) => {
-        console.error(`[PASSWORD RESET EMAIL FAILED] for ${email}:`, err.message || err);
+        console.error(`[PASSWORD RESET EMAIL FAILED] ${email}:`, err.message || err);
       });
 
-    // Respond immediately to frontend
     res.json({ success: true });
-  } catch (err) {
-    console.error('[FORGOT-PASSWORD ERROR]', err);
-    res.json({ success: true }); // Hide errors from user for security
+  } catch (err: any) {
+    console.error('[FORGOT-PASSWORD ERROR]', err.message || err);
+    res.json({ success: true }); // Always return success for security
   }
 });
 
@@ -653,7 +656,7 @@ app.post('/api/subscribe', async (req, res) => {
       });
     }
 
-    // 3. Save subscriber to DB
+    // 3. Save subscriber to DB (Fixed parameter count)
     db.prepare(`
       INSERT INTO subscribers (email, source, subscribed_at)
       VALUES (?, ?, datetime('now'))
@@ -672,7 +675,7 @@ app.post('/api/subscribe', async (req, res) => {
       !!process.env.EMAIL_USER &&
       !!process.env.EMAIL_APP_PASSWORD;
 
-    // 🔥 FIRE-AND-FORGET EMAIL - This prevents 504 timeout
+    // 🔥 FIRE-AND-FORGET EMAIL
     if (smtpReady) {
       console.log('[SUBSCRIBE] SMTP ready → sending welcome email in background');
 
@@ -681,7 +684,7 @@ app.post('/api/subscribe', async (req, res) => {
           console.log(`[WELCOME EMAIL] Successfully sent to ${trimmedEmail}`);
         })
         .catch((emailErr: any) => {
-          console.error('[WELCOME EMAIL FAILED] for', trimmedEmail);
+          console.error(`[WELCOME EMAIL FAILED] for ${trimmedEmail}`);
           console.error('Message:', emailErr?.message || emailErr);
           if (emailErr?.stack) console.error('Stack:', emailErr.stack);
         });
@@ -689,22 +692,20 @@ app.post('/api/subscribe', async (req, res) => {
       console.warn('[SUBSCRIBE] SMTP not configured — skipping welcome email');
     }
 
-    // 5. Respond to frontend immediately (no more waiting)
+    // 5. Respond immediately
     return res.status(200).json({
       success: true,
       message: 'Thank you! You are now subscribed.',
-      emailSent: smtpReady,   // optional info
+      emailSent: smtpReady,
     });
-  } catch (err) {
-    console.error('❌ Subscribe error:', err);
+  } catch (err: any) {
+    console.error('❌ Subscribe error:', err.message || err);
     return res.status(500).json({
       success: false,
       error: 'Failed to subscribe',
     });
   }
 });
-  
-
   // ── Dashboard Stats ───────────────────────────────────────────────────
 
   // Dashboard Stats
