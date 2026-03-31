@@ -207,42 +207,29 @@ const requirePostOwnership: RequestHandler = (req, res, next) => {
 async function startServer() {
   const app = express();
 
-  // ── Security headers (updated to allow Google Fonts)
-  app.use(helmet({
-    contentSecurityPolicy: isProduction ? true : {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", 'ws:', 'http://localhost:*'],
-        frameSrc: ["'self'", 'https://www.google.com'],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-      },
-    },
-  }));
+ // ── Security headers (Helmet) 
+app.use(helmet({
+  contentSecurityPolicy: false,   // ← Disable here (handled on frontend)
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  // You can keep other defaults or customize further
+}));
 
- app.use(cors({
+app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5173',
     'https://ritchierealty.netlify.app',
-    'https://www.ritchierealty.netlify.app',
-    'https://backendserver-k3hd.onrender.com'
+    'https://www.ritchierealty.netlify.app'
   ],
-  credentials: true,
+  credentials: true,                    // Important for cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Set-Cookie']
 }));
-
-  app.use(express.json({ limit: '1mb' }));
-  app.use(cookieParser());
-  app.use('/uploads', express.static(uploadDir));
-
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
+app.use('/uploads', express.static(uploadDir));
 
   // ── Auth routes ───────────────────────────────────────────────────────
 
@@ -771,6 +758,7 @@ if (!isProduction) {
     console.warn('Vite dev server could not be started:', err);
   }
 } else {
+  
   // Production: API-only mode (frontend is hosted on Netlify)
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
