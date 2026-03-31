@@ -314,7 +314,7 @@ app.use('/uploads', express.static(uploadDir));
 
  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   const { email } = req.body;
-  if (typeof email !== 'string') {
+  if (typeof email !== 'string' || !email.includes('@')) {
     return res.status(400).json({ success: false, error: 'Invalid email' });
   }
 
@@ -330,24 +330,27 @@ app.use('/uploads', express.static(uploadDir));
     db.prepare(`
       UPDATE users
       SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
-      WHERE id = ?
     `).run(hashedToken, user.id);
 
-    const url = `${process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app'}/reset-password/${rawToken}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app';
+    const url = `${frontendUrl}/reset-password/${rawToken}`;
 
-    // Fire and forget the email (don't await)
+    // 🔥 FIRE-AND-FORGET: Don't await — prevent timeout
     sendPasswordResetEmail(email, url)
-      .catch(err => {
-        console.error('[FORGOT-PASSWORD EMAIL ERROR]', err);
-        // Optionally log to a service like Sentry later
+      .then(() => console.log(`[PASSWORD RESET] Email sent to ${email}`))
+      .catch((err: any) => {
+        console.error(`[PASSWORD RESET EMAIL FAILED] for ${email}:`, err.message || err);
       });
 
+    // Respond immediately to frontend
     res.json({ success: true });
   } catch (err) {
     console.error('[FORGOT-PASSWORD ERROR]', err);
-    res.json({ success: true });   // Still hide from user
+    res.json({ success: true }); // Hide errors from user for security
   }
 });
+
+  
   app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
     const { token, newPassword } = req.body;
 
@@ -623,9 +626,6 @@ app.use('/uploads', express.static(uploadDir));
 app.post('/api/subscribe', async (req, res) => {
   const { email } = req.body;
 
-  // ─────────────────────────────────────────
-  // 1. Validate email
-  // ─────────────────────────────────────────
   const isValidEmail =
     typeof email === 'string' &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -640,9 +640,6 @@ app.post('/api/subscribe', async (req, res) => {
   const trimmedEmail = email.trim().toLowerCase();
 
   try {
-    // ─────────────────────────────────────────
-    // 2. Check duplicate subscription
-    // ─────────────────────────────────────────
     const existing = db
       .prepare('SELECT 1 FROM subscribers WHERE email = ?')
       .get(trimmedEmail);
@@ -654,9 +651,6 @@ app.post('/api/subscribe', async (req, res) => {
       });
     }
 
-    // ─────────────────────────────────────────
-    // 3. Save subscriber to DB
-    // ─────────────────────────────────────────
     db.prepare(`
       INSERT INTO subscribers (email, source, subscribed_at)
       VALUES (?, ?, datetime('now'))
@@ -664,59 +658,25 @@ app.post('/api/subscribe', async (req, res) => {
 
     console.log('📩 New subscriber saved:', trimmedEmail);
 
-    // ─────────────────────────────────────────
-    // 4. SMTP Debug Logs
-    // ─────────────────────────────────────────
-    console.log('[SUBSCRIBE] SMTP check starting...');
-    console.log('[SUBSCRIBE] SMTP_HOST:', process.env.SMTP_HOST || '(missing)');
-    console.log('[SUBSCRIBE] SMTP_USER:', process.env.SMTP_USER || '(missing)');
-    console.log('[SUBSCRIBE] SMTP_PASS:', process.env.SMTP_PASS ? 'present' : '(missing)');
+    // 🔥 FIRE-AND-FORGET for welcome email
+    const smtpReady = !!process.env.EMAIL_HOST && !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD;
 
-    const smtpReady =
-      !!process.env.SMTP_HOST &&
-      !!process.env.SMTP_USER &&
-      !!process.env.SMTP_PASS;
-
-    let emailSent = false;
-
-    // ─────────────────────────────────────────
-    // 5. Send welcome email
-    // ─────────────────────────────────────────
     if (smtpReady) {
-      console.log('[SUBSCRIBE] SMTP vars present → attempting email send');
-
-      try {
-        console.log('[EMAIL] Calling sendWelcomeEmail for:', trimmedEmail);
-
-        await sendWelcomeEmail(trimmedEmail);
-
-        emailSent = true;
-
-        console.log('[EMAIL] sendWelcomeEmail completed successfully');
-      } catch (emailErr: any) {
-        console.error('[EMAIL-ERROR] sendWelcomeEmail failed:');
-        console.error('Message:', emailErr?.message);
-        console.error('Stack:', emailErr?.stack);
-        console.error('Full error:', JSON.stringify(emailErr, null, 2));
-      }
+      sendWelcomeEmail(trimmedEmail)   // Assuming this function exists in blogmail.ts
+        .then(() => console.log(`[WELCOME EMAIL] Sent to ${trimmedEmail}`))
+        .catch((err: any) => {
+          console.error(`[WELCOME EMAIL FAILED] for ${trimmedEmail}:`, err.message || err);
+        });
     } else {
-      console.warn('[SUBSCRIBE] SMTP not configured — skipping email');
+      console.warn('[SUBSCRIBE] SMTP not fully configured — skipping email');
     }
 
-    // ─────────────────────────────────────────
-    // 6. Success response
-    // ─────────────────────────────────────────
     return res.status(200).json({
       success: true,
       message: 'Thank you! You are now subscribed.',
-      emailSent,
     });
   } catch (err) {
-    // ─────────────────────────────────────────
-    // 7. Server error
-    // ─────────────────────────────────────────
     console.error('❌ Subscribe error:', err);
-
     return res.status(500).json({
       success: false,
       error: 'Failed to subscribe',
