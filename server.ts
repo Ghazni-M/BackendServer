@@ -727,25 +727,28 @@ app.post('/api/subscribe', async (req, res) => {
     });
   });
 
- // Dynamic import for Vite (development only)
+// Dynamic import for Vite (development only) - Improved
 let vite: any;
 
 if (!isProduction) {
   try {
+    // Only import if we're really in dev mode
     const viteModule = await import('vite');
-    const createViteServer = viteModule.createServer;
-    
-    vite = await createViteServer({
+    const { createServer } = viteModule;
+
+    vite = await createServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } catch (err) {
-    console.warn('Vite dev server could not be started:', err);
+    console.log('✅ Vite dev server middleware attached');
+  } catch (err: any) {
+    console.error('❌ Failed to start Vite dev server:', err.message);
+    // Don't crash the server in dev
   }
 } else {
-  
-  // Production: API-only mode (frontend is hosted on Netlify)
+  // Production: Pure API mode (frontend is on Netlify)
+  console.log('🚀 Running in production mode - API only');
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ success: false, error: 'API endpoint not found' });
