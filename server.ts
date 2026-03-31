@@ -312,38 +312,42 @@ app.use('/uploads', express.static(uploadDir));
     }
   });
 
-  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
-    const { email } = req.body;
-    if (typeof email !== 'string') {
-      return res.status(400).json({ success: false, error: 'Invalid email' });
+ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (typeof email !== 'string') {
+    return res.status(400).json({ success: false, error: 'Invalid email' });
+  }
+
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+    if (!user) {
+      return res.json({ success: true });
     }
 
-    try {
-      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
-      if (!user) {
-        return res.json({ success: true });
-      }
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    db.prepare(`
+      UPDATE users
+      SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
+      WHERE id = ?
+    `).run(hashedToken, user.id);
 
-      db.prepare(`
-        UPDATE users
-        SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
-        WHERE id = ?
-      `).run(hashedToken, user.id);
+    const url = `${process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app'}/reset-password/${rawToken}`;
 
-      const url = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${rawToken}`;
+    // Fire and forget the email (don't await)
+    sendPasswordResetEmail(email, url)
+      .catch(err => {
+        console.error('[FORGOT-PASSWORD EMAIL ERROR]', err);
+        // Optionally log to a service like Sentry later
+      });
 
-      await sendPasswordResetEmail(email, url);
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res.json({ success: true });
-    }
-  });
-
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[FORGOT-PASSWORD ERROR]', err);
+    res.json({ success: true });   // Still hide from user
+  }
+});
   app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
     const { token, newPassword } = req.body;
 
