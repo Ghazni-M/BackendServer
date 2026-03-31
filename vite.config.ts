@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3000',
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path,   // keep /api prefix
+          rewrite: (path) => path,
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq, req) => {
               console.log('[VITE-PROXY REQ]', req.method, req.url);
@@ -55,9 +55,6 @@ export default defineConfig(({ mode }) => {
       },
 
       hmr: { overlay: true },
-      watch: {
-        usePolling: process.env.VITE_POLLING === 'true',
-      },
     },
 
     preview: {
@@ -67,8 +64,10 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      outDir: 'dist',
+      outDir: 'dist',                    // ← This is fine (default)
+      emptyOutDir: true,                 // ← Important: clears old build
       sourcemap: !isProduction,
+
       rollupOptions: {
         output: {
           manualChunks: {
