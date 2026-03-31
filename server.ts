@@ -626,6 +626,7 @@ app.use('/uploads', express.static(uploadDir));
 app.post('/api/subscribe', async (req, res) => {
   const { email } = req.body;
 
+  // 1. Validate email
   const isValidEmail =
     typeof email === 'string' &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -640,6 +641,7 @@ app.post('/api/subscribe', async (req, res) => {
   const trimmedEmail = email.trim().toLowerCase();
 
   try {
+    // 2. Check duplicate subscription
     const existing = db
       .prepare('SELECT 1 FROM subscribers WHERE email = ?')
       .get(trimmedEmail);
@@ -651,6 +653,7 @@ app.post('/api/subscribe', async (req, res) => {
       });
     }
 
+    // 3. Save subscriber to DB
     db.prepare(`
       INSERT INTO subscribers (email, source, subscribed_at)
       VALUES (?, ?, datetime('now'))
@@ -658,22 +661,39 @@ app.post('/api/subscribe', async (req, res) => {
 
     console.log('📩 New subscriber saved:', trimmedEmail);
 
-    // 🔥 FIRE-AND-FORGET for welcome email
-    const smtpReady = !!process.env.EMAIL_HOST && !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD;
+    // 4. SMTP Debug Logs
+    console.log('[SUBSCRIBE] SMTP check starting...');
+    console.log('[SUBSCRIBE] EMAIL_HOST:', process.env.EMAIL_HOST || '(missing)');
+    console.log('[SUBSCRIBE] EMAIL_USER:', process.env.EMAIL_USER || '(missing)');
+    console.log('[SUBSCRIBE] EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? 'present' : '(missing)');
 
+    const smtpReady =
+      !!process.env.EMAIL_HOST &&
+      !!process.env.EMAIL_USER &&
+      !!process.env.EMAIL_APP_PASSWORD;
+
+    // 🔥 FIRE-AND-FORGET EMAIL - This prevents 504 timeout
     if (smtpReady) {
-      sendWelcomeEmail(trimmedEmail)   // Assuming this function exists in blogmail.ts
-        .then(() => console.log(`[WELCOME EMAIL] Sent to ${trimmedEmail}`))
-        .catch((err: any) => {
-          console.error(`[WELCOME EMAIL FAILED] for ${trimmedEmail}:`, err.message || err);
+      console.log('[SUBSCRIBE] SMTP ready → sending welcome email in background');
+
+      sendWelcomeEmail(trimmedEmail)
+        .then(() => {
+          console.log(`[WELCOME EMAIL] Successfully sent to ${trimmedEmail}`);
+        })
+        .catch((emailErr: any) => {
+          console.error('[WELCOME EMAIL FAILED] for', trimmedEmail);
+          console.error('Message:', emailErr?.message || emailErr);
+          if (emailErr?.stack) console.error('Stack:', emailErr.stack);
         });
     } else {
-      console.warn('[SUBSCRIBE] SMTP not fully configured — skipping email');
+      console.warn('[SUBSCRIBE] SMTP not configured — skipping welcome email');
     }
 
+    // 5. Respond to frontend immediately (no more waiting)
     return res.status(200).json({
       success: true,
       message: 'Thank you! You are now subscribed.',
+      emailSent: smtpReady,   // optional info
     });
   } catch (err) {
     console.error('❌ Subscribe error:', err);
@@ -683,6 +703,7 @@ app.post('/api/subscribe', async (req, res) => {
     });
   }
 });
+  
 
   // ── Dashboard Stats ───────────────────────────────────────────────────
 
