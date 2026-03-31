@@ -276,41 +276,24 @@ app.use('/uploads', express.static(uploadDir));
     res.json({ success: true });
   });
 
-  app.get('/api/auth/me', (req, res) => {
-    const token = req.cookies?.token;
+ app.get('/api/auth/me', (req, res) => {
+  const token = req.cookies?.token;
+  if (!token) {
+    return res.status(401).json({ success: false, authenticated: false });
+  }
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        authenticated: false,
-        message: 'No authentication token found',
-      });
-    }
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
-
-      // Sliding expiration (optional – uncomment to enable)
-      // res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: COOKIE_MAX_AGE_MS, path: '/' });
-
-      return res.json({
-        success: true,
-        authenticated: true,
-        user: {
-          id: decoded.id,
-          email: decoded.email,
-          name: decoded.name,
-          role: decoded.role,
-        },
-      });
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        authenticated: false,
-        message: 'Invalid or expired token',
-      });
-    }
-  });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
+    return res.json({
+      success: true,
+      authenticated: true,
+      user: { id: decoded.id, email: decoded.email, name: decoded.name, role: decoded.role }
+    });
+  } catch (err) {
+    res.clearCookie('token'); // Clean up bad cookie
+    return res.status(401).json({ success: false, authenticated: false });
+  }
+});
 
  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   const { email } = req.body;
@@ -735,27 +718,25 @@ if (process.env.NODE_ENV !== 'production') {
     const { createServer } = await import('vite');
 
     vite = await createServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: { port: 24678 } // optional but helps stability
+      },
       appType: 'spa',
+      // Add this to help with timeouts and large deps
+      optimizeDeps: {
+        force: true, // or run `npm run dev -- --force` once
+      }
     });
 
+    // ← CRITICAL: Attach Vite EARLY, before your API routes
     app.use(vite.middlewares);
-    console.log('✅ Vite dev middleware attached successfully');
+
+    console.log('✅ Vite dev middleware attached (early)');
   } catch (err: any) {
     console.error('❌ Failed to start Vite dev server:', err.message);
-    // Do not crash the server
   }
-} else {
-  // Production: Pure API-only mode (frontend served from Netlify)
-  console.log('🚀 Running in PRODUCTION mode - API only');
-  
-  app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'API endpoint not found' 
-      });
-    }
+}
     
     res.json({
       success: true,
