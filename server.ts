@@ -21,17 +21,11 @@ import db from './src/db.js';
 import { sendPasswordResetEmail } from './src/utils/email.js';
 import { sendWelcomeEmail } from './src/utils/blogmail.js';
 
-// ────────────────────────────────────────────────────────────────────────
 // ESM __dirname fix
-// ────────────────────────────────────────────────────────────────────────
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ────────────────────────────────────────────────────────────────────────
 // Configuration
-// ────────────────────────────────────────────────────────────────────────
-
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
 
@@ -41,45 +35,27 @@ const isProduction = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
 
-// ────────────────────────────────────────────────────────────────────────
 // SQLite tuning
-// ────────────────────────────────────────────────────────────────────────
-
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 db.pragma('synchronous = NORMAL');
 
-// ────────────────────────────────────────────────────────────────────────
 // Upload setup
-// ────────────────────────────────────────────────────────────────────────
-
 const uploadDir = path.join(__dirname, 'public/uploads');
-
-// Ensure directory exists (safe for production)
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Multer Configuration (secure)
-// ─────────────────────────────────────────────────────────────
-
+// Multer Configuration
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-
+  destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-
-    // Normalize extension to lowercase
     const ext = path.extname(file.originalname).toLowerCase();
-
     cb(null, `${uniqueSuffix}${ext}`);
   },
 });
 
-// File filter (ONLY images)
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
   if (!file.mimetype.startsWith('image/')) {
     return cb(new Error('Only image files are allowed'));
@@ -87,19 +63,13 @@ const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
   cb(null, true);
 };
 
-// Final upload instance
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter,
 });
 
-// ────────────────────────────────────────────────────────────────────────
 // Rate limiters
-// ────────────────────────────────────────────────────────────────────────
-
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -114,15 +84,12 @@ const apiWriteLimiter = rateLimit({
   message: { success: false, error: 'Too many requests, slow down' },
 });
 
-// ────────────────────────────────────────────────────────────────────────
 // Types
-// ────────────────────────────────────────────────────────────────────────
-
 type AuthUser = {
   id: number;
   email: string;
   name: string;
-  role: string; // 'agent' | 'owner' assumed
+  role: string;
 };
 
 declare global {
@@ -133,11 +100,7 @@ declare global {
   }
 }
 
-
-// ────────────────────────────────────────────────────────────────────────
 // Middlewares
-// ────────────────────────────────────────────────────────────────────────
-
 const authenticate: RequestHandler = (req, res, next) => {
   const token = req.cookies?.token;
   if (!token) {
@@ -149,6 +112,7 @@ const authenticate: RequestHandler = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
+    res.clearCookie('token');
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 };
@@ -170,14 +134,10 @@ const requirePropertyOwnership: RequestHandler = (req, res, next) => {
 
   const prop = db.prepare('SELECT agent_id FROM properties WHERE id = ?').get(id) as { agent_id: number } | undefined;
 
-  if (!prop) {
-    return res.status(404).json({ success: false, error: 'Property not found' });
-  }
-
+  if (!prop) return res.status(404).json({ success: false, error: 'Property not found' });
   if (req.user!.role !== 'owner' && prop.agent_id !== req.user!.id) {
     return res.status(403).json({ success: false, error: 'You do not own this property' });
   }
-
   next();
 };
 
@@ -189,51 +149,81 @@ const requirePostOwnership: RequestHandler = (req, res, next) => {
 
   const post = db.prepare('SELECT author_id FROM posts WHERE id = ?').get(id) as { author_id: number } | undefined;
 
-  if (!post) {
-    return res.status(404).json({ success: false, error: 'Post not found' });
-  }
-
+  if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
   if (req.user!.role !== 'owner' && post.author_id !== req.user!.id) {
     return res.status(403).json({ success: false, error: 'You are not the author of this post' });
   }
+  next();
+};
 
+// Request timeout to prevent 504
+const requestTimeout = (ms = 30000) => (req: Request, res: Response, next: NextFunction) => {
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({ success: false, error: 'Request timeout - server took too long' });
+    }
+  }, ms);
+  res.on('finish', () => clearTimeout(timer));
   next();
 };
 
 // ────────────────────────────────────────────────────────────────────────
 // Server bootstrap
 // ────────────────────────────────────────────────────────────────────────
-
 async function startServer() {
   const app = express();
 
- // ── Security headers (Helmet) 
-app.use(helmet({
-  contentSecurityPolicy: false,   // ← Disable here (handled on frontend)
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  // You can keep other defaults or customize further
-}));
+  // Security & core middlewares
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
 
-app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://ritchierealty.netlify.app',
-    'https://www.ritchierealty.netlify.app'
-  ],
-  credentials: true,                    // Important for cookies
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Set-Cookie']
-}));
-app.use(express.json({ limit: '1mb' }));
-app.use(cookieParser());
-app.use('/uploads', express.static(uploadDir));
+  app.use(cors({
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'https://ritchierealty.netlify.app',
+      'https://www.ritchierealty.netlify.app'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Set-Cookie']
+  }));
+
+  app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
+  app.use('/uploads', express.static(uploadDir));
+  app.use(requestTimeout(30000));   // ← Helps prevent 504
+
+  // ── Vite Dev Server (Development ONLY) ─────────────────────────────────
+  let vite: any;
+  if (!isProduction) {
+    try {
+      const { createServer } = await import('vite');
+
+      vite = await createServer({
+        server: { 
+          middlewareMode: true,
+          hmr: { port: 24678 }
+        },
+        appType: 'custom',           // Recommended for API + SPA
+        optimizeDeps: { force: true },
+      });
+
+      // Attach Vite middleware EARLY
+      app.use(vite.middlewares);
+      console.log('✅ Vite dev middleware attached successfully');
+    } catch (err: any) {
+      console.error('❌ Failed to start Vite dev server:', err.message);
+    }
+  }
 
   // ── Auth routes ───────────────────────────────────────────────────────
-
   app.post('/api/auth/login', authLimiter, async (req, res) => {
+    // ... (your original login handler - unchanged)
     const { email, password } = req.body;
     if (typeof email !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ success: false, error: 'Invalid input' });
@@ -270,31 +260,30 @@ app.use('/uploads', express.static(uploadDir));
     }
   });
 
-
-    app.post('/api/auth/logout', (req, res) => {
+  app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     res.json({ success: true });
   });
 
- app.get('/api/auth/me', (req, res) => {
-  const token = req.cookies?.token;
-  if (!token) {
-    return res.status(401).json({ success: false, authenticated: false });
-  }
+  app.get('/api/auth/me', (req, res) => {
+    const token = req.cookies?.token;
+    if (!token) {
+      return res.status(401).json({ success: false, authenticated: false });
+    }
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
-    return res.json({
-      success: true,
-      authenticated: true,
-      user: { id: decoded.id, email: decoded.email, name: decoded.name, role: decoded.role }
-    });
-  } catch (err) {
-    res.clearCookie('token'); // Clean up bad cookie
-    return res.status(401).json({ success: false, authenticated: false });
-  }
-});
-
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
+      return res.json({
+        success: true,
+        authenticated: true,
+        user: { id: decoded.id, email: decoded.email, name: decoded.name, role: decoded.role }
+      });
+    } catch (err) {
+      res.clearCookie('token');
+      return res.status(401).json({ success: false, authenticated: false });
+    }
+  });
+ 
  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   const { email } = req.body;
   if (typeof email !== 'string' || !email.includes('@')) {
@@ -377,11 +366,15 @@ app.use('/uploads', express.static(uploadDir));
 
   // ── File upload ───────────────────────────────────────────────────────
 
-  app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No valid image uploaded' });
+   app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No valid image uploaded' });
+      }
+      res.json({ success: true, url: `/uploads/${req.file.filename}` });
+    } catch (err) {
+      next(err);
     }
-    res.json({ success: true, url: `/uploads/${req.file.filename}` });
   });
 
   // ── Users (owner only) ────────────────────────────────────────────────
@@ -710,43 +703,36 @@ app.post('/api/subscribe', async (req, res) => {
     });
   });
 
-// ── Vite Dev Server (Development ONLY) ─────────────────────────────────
-let vite: any;
-
-if (process.env.NODE_ENV !== 'production') {
-  try {
-    const { createServer } = await import('vite');
-
-    vite = await createServer({
-      server: { 
-        middlewareMode: true,
-        hmr: { port: 24678 } // optional but helps stability
-      },
-      appType: 'spa',
-      // Add this to help with timeouts and large deps
-      optimizeDeps: {
-        force: true, // or run `npm run dev -- --force` once
+ // ── SPA Fallback (Development only) ───────────────────────────────────
+  if (!isProduction) {
+    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
+      const url = req.originalUrl;
+      try {
+        const template = await vite.transformIndexHtml(
+          url,
+          fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8')
+        );
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
       }
     });
-
-    // ← CRITICAL: Attach Vite EARLY, before your API routes
-    app.use(vite.middlewares);
-
-    console.log('✅ Vite dev middleware attached (early)');
-  } catch (err: any) {
-    console.error('❌ Failed to start Vite dev server:', err.message);
-  }
-}
-    
-    res.json({
-      success: true,
-      message: "Ritchie Realty Backend API is running successfully",
-      version: "1.0.0"
+  } else {
+    // Production health check
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ success: false, error: 'API endpoint not found' });
+      }
+      res.json({
+        success: true,
+        message: "Ritchie Realty Backend API is running successfully",
+        version: "1.0.0"
+      });
     });
-  });
-}
-  // ── Global error handler ──────────────────────────────────────────────
+  }
 
+  // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error('Global error:', err);
     const status = err.status || 500;
@@ -754,10 +740,9 @@ if (process.env.NODE_ENV !== 'production') {
     res.status(status).json({ success: false, error: message });
   });
 
-  // ── Start server ──────────────────────────────────────────────────────
-
+  // Start server
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
