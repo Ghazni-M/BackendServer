@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 const env = {
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
   port: Number(process.env.EMAIL_PORT) || 587,
-  secure: process.env.EMAIL_SECURE === 'true', // true = 465/SSL, false = 587/STARTTLS
+  secure: process.env.EMAIL_SECURE === 'true',
   user: process.env.EMAIL_USER,
   pass: process.env.EMAIL_APP_PASSWORD,
   from: process.env.EMAIL_FROM || '"Ritchie Realty" <no-reply@ritchierealty.com>',
@@ -25,30 +25,24 @@ if (missing.length > 0) {
 }
 
 // ────────────────────────────────────────────────
-// Create transporter
+// Create transporter with timeouts (prevents 504 timeout)
 // ────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
   host: env.host,
   port: env.port,
-  secure: env.secure, // true for 465, false for 587
+  secure: env.secure,
   auth: {
     user: env.user,
     pass: env.pass,
   },
-  // Optional: helps with self-signed certs or dev issues (remove in strict prod)
+  // 🔥 Critical: Short timeouts so it fails fast instead of hanging
+  connectionTimeout: 8000,   // 8 seconds
+  greetingTimeout: 8000,
+  socketTimeout: 12000,      // 12 seconds
+
+  // Optional: helps in development
   tls: process.env.NODE_ENV === 'development' ? { rejectUnauthorized: false } : undefined,
 });
-
-// Verify connection (logs in dev, silent in prod)
-if (process.env.NODE_ENV !== 'production') {
-  transporter.verify((error) => {
-    if (error) {
-      console.error('[EMAIL] SMTP connection verification failed:', error.message);
-    } else {
-      console.log('[EMAIL] SMTP connection verified successfully');
-    }
-  });
-}
 
 // ────────────────────────────────────────────────
 // Send Password Reset Email
@@ -133,12 +127,12 @@ Ritchie Realty
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[EMAIL] Reset email sent to ${to} → Message ID: ${info.messageId}`);
+    console.log(`[PASSWORD RESET EMAIL] Sent to ${to} → Message ID: ${info.messageId}`);
   } catch (err: any) {
-    console.error('[EMAIL] Failed to send reset email:');
+    console.error(`[PASSWORD RESET EMAIL] Failed to send to ${to}:`);
     console.error('Error:', err.message);
+    if (err.code) console.error('Code:', err.code);
     if (err.response) console.error('SMTP Response:', err.response);
-    if (err.code) console.error('Error Code:', err.code);
-    throw new Error(`Failed to send password reset email: ${err.message}`);
+    // Do NOT throw — we use fire-and-forget in the route
   }
 }
