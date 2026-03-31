@@ -727,32 +727,36 @@ app.post('/api/subscribe', async (req, res) => {
     });
   });
 
-// Dynamic import for Vite (development only) - Improved
+// ── Vite Dev Server (Development ONLY) ─────────────────────────────────
 let vite: any;
 
-if (!isProduction) {
+if (process.env.NODE_ENV !== 'production') {
   try {
-    // Only import if we're really in dev mode
-    const viteModule = await import('vite');
-    const { createServer } = viteModule;
+    const { createServer } = await import('vite');
 
     vite = await createServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
+
     app.use(vite.middlewares);
-    console.log('✅ Vite dev server middleware attached');
+    console.log('✅ Vite dev middleware attached successfully');
   } catch (err: any) {
     console.error('❌ Failed to start Vite dev server:', err.message);
-    // Don't crash the server in dev
+    // Do not crash the server
   }
 } else {
-  // Production: Pure API mode (frontend is on Netlify)
-  console.log('🚀 Running in production mode - API only');
+  // Production: Pure API-only mode (frontend served from Netlify)
+  console.log('🚀 Running in PRODUCTION mode - API only');
+  
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ success: false, error: 'API endpoint not found' });
+      return res.status(404).json({ 
+        success: false, 
+        error: 'API endpoint not found' 
+      });
     }
+    
     res.json({
       success: true,
       message: "Ritchie Realty Backend API is running successfully",
