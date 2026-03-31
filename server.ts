@@ -1,8 +1,4 @@
 // server.ts
-// ────────────────────────────────────────────────────────────────────────
-// Main backend server for Ritchie Realty real estate platform
-// ────────────────────────────────────────────────────────────────────────
-
 import 'dotenv/config';
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import path from 'path';
@@ -46,7 +42,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer Configuration
+// Multer
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
@@ -65,7 +61,7 @@ const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter,
 });
 
@@ -106,12 +102,11 @@ const authenticate: RequestHandler = (req, res, next) => {
   if (!token) {
     return res.status(401).json({ success: false, error: 'Unauthorized – no token' });
   }
-
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = decoded;
     next();
-  } catch (err) {
+  } catch {
     res.clearCookie('token');
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
@@ -126,41 +121,11 @@ const restrictTo = (...roles: string[]): RequestHandler => {
   };
 };
 
-const requirePropertyOwnership: RequestHandler = (req, res, next) => {
-  const id = req.params.id;
-  if (!id || isNaN(Number(id))) {
-    return res.status(400).json({ success: false, error: 'Invalid property ID' });
-  }
-
-  const prop = db.prepare('SELECT agent_id FROM properties WHERE id = ?').get(id) as { agent_id: number } | undefined;
-
-  if (!prop) return res.status(404).json({ success: false, error: 'Property not found' });
-  if (req.user!.role !== 'owner' && prop.agent_id !== req.user!.id) {
-    return res.status(403).json({ success: false, error: 'You do not own this property' });
-  }
-  next();
-};
-
-const requirePostOwnership: RequestHandler = (req, res, next) => {
-  const id = req.params.id;
-  if (!id || isNaN(Number(id))) {
-    return res.status(400).json({ success: false, error: 'Invalid post ID' });
-  }
-
-  const post = db.prepare('SELECT author_id FROM posts WHERE id = ?').get(id) as { author_id: number } | undefined;
-
-  if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
-  if (req.user!.role !== 'owner' && post.author_id !== req.user!.id) {
-    return res.status(403).json({ success: false, error: 'You are not the author of this post' });
-  }
-  next();
-};
-
-// Request timeout to prevent 504
+// Request timeout middleware (helps prevent 504)
 const requestTimeout = (ms = 30000) => (req: Request, res: Response, next: NextFunction) => {
   const timer = setTimeout(() => {
     if (!res.headersSent) {
-      res.status(504).json({ success: false, error: 'Request timeout - server took too long' });
+      res.status(504).json({ success: false, error: 'Request timeout' });
     }
   }, ms);
   res.on('finish', () => clearTimeout(timer));
@@ -173,7 +138,7 @@ const requestTimeout = (ms = 30000) => (req: Request, res: Response, next: NextF
 async function startServer() {
   const app = express();
 
-  // Security & core middlewares
+  // Core middlewares
   app.use(helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
@@ -196,10 +161,11 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use('/uploads', express.static(uploadDir));
-  app.use(requestTimeout(30000));   // ← Helps prevent 504
+  app.use(requestTimeout(30000));
 
   // ── Vite Dev Server (Development ONLY) ─────────────────────────────────
-  let vite: any;
+  let vite: any;   // ← Declared only once here
+
   if (!isProduction) {
     try {
       const { createServer } = await import('vite');
@@ -209,18 +175,16 @@ async function startServer() {
           middlewareMode: true,
           hmr: { port: 24678 }
         },
-        appType: 'custom',           // Recommended for API + SPA
+        appType: 'custom',
         optimizeDeps: { force: true },
       });
 
-      // Attach Vite middleware EARLY
       app.use(vite.middlewares);
       console.log('✅ Vite dev middleware attached successfully');
     } catch (err: any) {
       console.error('❌ Failed to start Vite dev server:', err.message);
     }
   }
-
   // ── Auth routes ───────────────────────────────────────────────────────
   app.post('/api/auth/login', authLimiter, async (req, res) => {
     // ... (your original login handler - unchanged)
@@ -703,37 +667,37 @@ app.post('/api/subscribe', async (req, res) => {
     });
   });
 
-// ── Vite Dev Server (Development ONLY) ─────────────────────────────────
-let vite: any;
-if (!isProduction) {
-  try {
-    const { createServer } = await import('vite');
 
-    vite = await createServer({
-      server: { 
-        middlewareMode: true,
-        hmr: { port: 24678 }
-      },
-      appType: 'custom',           // Best for Express + API
-      optimizeDeps: { force: true },
-      // Optional: explicitly pass config if needed
-      // configFile: './vite.config.ts',
+  // ── SPA Fallback (Development) ───────────────────────────────────────
+  if (!isProduction) {
+    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/api/')) return next();
+
+      try {
+        const template = await vite.transformIndexHtml(
+          req.originalUrl,
+          fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8')
+        );
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite?.ssrFixStacktrace(e);
+        next(e);
+      }
     });
-
-    app.use(vite.middlewares);
-    console.log('✅ Vite dev middleware attached successfully');
-  } catch (err: any) {
-    console.error('❌ Failed to start Vite dev server:', err.message);
-    // Do not crash the whole server
+  } else {
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ success: false, error: 'API endpoint not found' });
+      }
+      res.json({ success: true, message: 'Ritchie Realty Backend API is running' });
+    });
   }
-}
 
   // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error('Global error:', err);
     const status = err.status || 500;
-    const message = status === 500 ? 'Internal server error' : (err.message || 'Something went wrong');
-    res.status(status).json({ success: false, error: message });
+    res.status(status).json({ success: false, error: err.message || 'Internal server error' });
   });
 
   // Start server
