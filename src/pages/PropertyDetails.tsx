@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { motion } from 'motion/react';
-import { Bed, Bath, Square, MapPin, ArrowLeft, Phone, Mail, Calendar, Share2, Heart, Play, Box } from 'lucide-react';
-import { Property } from '../types.js';
-import { api } from '../services/api.js';
-import { ContactForm } from '../components/ContactForm.js';
+import { motion, AnimatePresence } from 'motion/react';
+import { Bed, Bath, Square, MapPin, ArrowLeft, Phone, Mail, Calendar, Share2, Heart, Play, Box, Check, Copy } from 'lucide-react';
+import { Property } from '../types';
+import { api } from '../services/api';
+import { ContactForm } from '../components/ContactForm';
+import { useFavorites } from '../lib/useFavorites';
 
 export const PropertyDetails = () => {
   const { id } = useParams<{ id: string }>();
   const [property, setProperty] = useState<Property | null>(null);
   const [activeImage, setActiveImage] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const { toggleFavorite, isFavorite } = useFavorites();
 
   useEffect(() => {
     const fetchProperty = async () => {
@@ -26,6 +29,45 @@ export const PropertyDetails = () => {
     };
     fetchProperty();
   }, [id]);
+
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleShare = async () => {
+    const shareData = {
+      title: property?.title || 'Ritchie Realty Property',
+      text: `Check out this property: ${property?.title} at ${property?.address}`,
+      url: window.location.href,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        showToast('Shared successfully!');
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Error sharing', err);
+        }
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        showToast('Link copied to clipboard!', 'info');
+      } catch (err) {
+        console.error('Failed to copy link', err);
+      }
+    }
+  };
+
+  const handleLike = () => {
+    if (property) {
+      const liked = isFavorite(Number(property.id));
+      toggleFavorite(Number(property.id));
+      showToast(liked ? 'Removed from favorites' : 'Added to favorites');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -52,19 +94,44 @@ export const PropertyDetails = () => {
     );
   }
 
+  const isLiked = isFavorite(Number(property.id));
+
   return (
-    <div className="pt-24 min-h-screen bg-brand-cream">
+    <div className="pt-24 min-h-screen bg-brand-cream relative">
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 50, x: '-50%' }}
+            className="fixed bottom-8 left-1/2 z-[100] px-6 py-3 bg-brand-navy text-white rounded-2xl shadow-2xl flex items-center gap-3 min-w-[200px]"
+          >
+            {toast.type === 'success' ? <Check className="w-5 h-5 text-brand-gold" /> : <Copy className="w-5 h-5 text-brand-gold" />}
+            <span className="font-medium">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Breadcrumbs & Actions */}
       <div className="max-w-7xl mx-auto px-6 py-8 flex flex-wrap justify-between items-center gap-4">
         <Link to="/listings" className="flex items-center gap-2 text-brand-navy font-bold hover:text-brand-gold transition-colors">
           <ArrowLeft className="w-5 h-5" /> Back to Listings
         </Link>
         <div className="flex gap-4">
-          <button className="p-3 rounded-full bg-white shadow-sm hover:shadow-md transition-all text-brand-navy hover:text-brand-gold">
+          <button 
+            onClick={handleShare}
+            className="p-3 rounded-full bg-white shadow-sm hover:shadow-md transition-all text-brand-navy hover:text-brand-gold group"
+            title="Share Property"
+          >
             <Share2 className="w-5 h-5" />
           </button>
-          <button className="p-3 rounded-full bg-white shadow-sm hover:shadow-md transition-all text-brand-navy hover:text-brand-gold">
-            <Heart className="w-5 h-5" />
+          <button 
+            onClick={handleLike}
+            className={`p-3 rounded-full bg-white shadow-sm hover:shadow-md transition-all group ${isLiked ? 'text-red-500' : 'text-brand-navy hover:text-red-500'}`}
+            title={isLiked ? "Remove from Favorites" : "Add to Favorites"}
+          >
+            <Heart className={`w-5 h-5 ${isLiked ? 'fill-red-500' : ''}`} />
           </button>
         </div>
       </div>
