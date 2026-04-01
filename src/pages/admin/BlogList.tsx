@@ -4,7 +4,7 @@ import { Plus, Search, Edit2, Trash2, ExternalLink, Calendar, User } from 'lucid
 import { motion } from 'motion/react';
 import { api } from '../../services/api.js';
 import { Post } from '../../types.js';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog.js';
 
 export const BlogList = () => {
   const [posts, setPosts] = useState<Post[]>([]);
