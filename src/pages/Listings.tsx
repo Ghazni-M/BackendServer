@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Filter, Map as MapIcon, Grid } from 'lucide-react';
-import { PropertyCard } from '../components/PropertyCard';
+import { PropertyCard } from '../components/PropertyCard.js';
 import { api } from '../services/api.js';
 import { Property } from '../types.js';
 
