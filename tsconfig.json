@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler",        // ← Best for Vite
+    "moduleResolution": "bundler",
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -10,17 +10,17 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
 
-    // React JSX support
+    // React + JSX support
     "jsx": "react-jsx",
 
-    // Vite specific
+    // Vite support
     "types": ["vite/client", "node"],
     "resolveJsonModule": true,
     "declaration": false
   },
   "include": [
-    "src/**/*",
-    "vite.config.ts"
+    "src/**/*",           // All your React + server code
+    "vite.config.ts"      // Include vite.config.ts explicitly
   ],
   "exclude": [
     "node_modules",
