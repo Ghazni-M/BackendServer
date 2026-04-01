@@ -10,18 +10,15 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
 
-    // React + JSX support
     "jsx": "react-jsx",
-
-    // Vite support
     "types": ["vite/client", "node"],
     "resolveJsonModule": true,
     "declaration": false
   },
   "include": [
-    "src/**/*",           // All your React + server code
+    "src/**/*",
     "server.ts",
-    "vite.config.ts"      // Include vite.config.ts explicitly
+    "vite.config.ts"
   ],
   "exclude": [
     "node_modules",
