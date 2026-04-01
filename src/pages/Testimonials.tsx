@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { TESTIMONIALS } from '../constants.js';
-import { TestimonialCard } from '../components/TestimonialCard';
+import { TestimonialCard } from '../components/TestimonialCard.js';
 import { Star } from 'lucide-react';
 
 export const Testimonials = () => {
