@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Search, Edit2, Trash2, ExternalLink, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { api } from '../../services/api.js';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog.js';
 
 export const Properties = () => {
   const [properties, setProperties] = useState<any[]>([]);
