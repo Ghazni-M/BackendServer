@@ -1,34 +1,34 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 
-import { Header } from './components/Header';
-import { Footer } from './components/Footer';
-import { Home } from './pages/Home';
-import { About } from './pages/About';
-import { Listings } from './pages/Listings';
-import { Services } from './pages/Services';
-import { Testimonials } from './pages/Testimonials';
-import { Contact } from './pages/Contact';
-import { PropertyDetails } from './pages/PropertyDetails';
-import { Privacy, Terms } from './pages/Legal';
-import { Sitemap } from './pages/Sitemap';
-import { Blog } from './pages/Blog';
-import { BlogPost } from './pages/BlogPost';
+import { Header } from './components/Header.js';
+import { Footer } from './components/Footer.js';
+import { Home } from './pages/Home.js';
+import { About } from './pages/About.js';
+import { Listings } from './pages/Listings.js';
+import { Services } from './pages/Services.js';
+import { Testimonials } from './pages/Testimonials.js';
+import { Contact } from './pages/Contact.js';
+import { PropertyDetails } from './pages/PropertyDetails.js';
+import { Privacy, Terms } from './pages/Legal.js';
+import { Sitemap } from './pages/Sitemap.js';
+import { Blog } from './pages/Blog.js';
+import { BlogPost } from './pages/BlogPost.js';
 
 // Admin Pages
-import { Login as AdminLogin } from './pages/admin/Login';
-import { Dashboard as AdminDashboard } from './pages/admin/Dashboard';
-import { Properties as AdminProperties } from './pages/admin/Properties';
-import { PropertyForm as AdminPropertyForm } from './pages/admin/PropertyForm';
-import { Inquiries as AdminInquiries } from './pages/admin/Inquiries';
-import { BlogList as AdminBlogList } from './pages/admin/BlogList';
-import { BlogForm as AdminBlogForm } from './pages/admin/BlogForm';
-import { Users as AdminUsers } from './pages/admin/Users';
-import { Settings as AdminSettings } from './pages/admin/Settings';
-import { AdminLayout } from './components/AdminLayout';
+import { Login as AdminLogin } from './pages/admin/Login.js';
+import { Dashboard as AdminDashboard } from './pages/admin/Dashboard.js';
+import { Properties as AdminProperties } from './pages/admin/Properties.js';
+import { PropertyForm as AdminPropertyForm } from './pages/admin/PropertyForm.js';
+import { Inquiries as AdminInquiries } from './pages/admin/Inquiries.js';
+import { BlogList as AdminBlogList } from './pages/admin/BlogList.js';
+import { BlogForm as AdminBlogForm } from './pages/admin/BlogForm.js';
+import { Users as AdminUsers } from './pages/admin/Users.js';
+import { Settings as AdminSettings } from './pages/admin/Settings.js';
+import { AdminLayout } from './components/AdminLayout.js';
 
 // ── Add this import ───────────────────────────────────────────────────────
-import ResetPassword from './pages/ResetPassword';   // adjust path if different
+import ResetPassword from './pages/ResetPassword.js';   // adjust path if different
 
 const PublicLayout = ({ children }: { children: React.ReactNode }) => (
   <div className="flex flex-col min-h-screen">
