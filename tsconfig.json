@@ -10,11 +10,15 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"],
-    "declaration": false,
-    "resolveJsonModule": true
+
+    // ✅ JSX Support - This is what you were missing
+    "jsx": "react-jsx",
+
+    "resolveJsonModule": true,
+    "declaration": false
   },
   "include": [
-    "src/**/*"
+    "src/**/*"          // Includes all .ts and .tsx files in src/
   ],
   "exclude": [
     "node_modules",
