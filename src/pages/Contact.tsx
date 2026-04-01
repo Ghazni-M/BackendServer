@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion'; // corrected import (assuming you meant framer-motion)
-import { Mail, Phone, MapPin, Facebook, Instagram, Linkedin } from 'lucide-react';
+import { FacebookIcon, InstagramIcon, LinkedinIcon } from 'lucide-react';
 import { ContactForm } from '../components/ContactForm.js';
 import { SERVICES } from '../constants.js';
 import RitchieImage from '../images/RITCHIE-REALTY-INC.jpg';
