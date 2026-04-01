@@ -4,6 +4,7 @@ import { Search, Filter, Map as MapIcon, Grid } from 'lucide-react';
 import { PropertyCard } from '../components/PropertyCard.js';
 import { api } from '../services/api.js';
 import { Property } from '../types.js';
+import { useFavorites } from '../lib/useFavorites.js';
 
 export const Listings = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
@@ -12,6 +13,7 @@ export const Listings = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const { isFavorite } = useFavorites();
   const ITEMS_PER_PAGE = 9; // adjust as needed
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export const Listings = () => {
   }, []);
 
   const filteredProperties = properties.filter((p) => {
-    const matchesType = filter === 'All' || p.type === filter;
+    const matchesType = filter === 'All' || p.type === filter || (filter === 'Favorites' && isFavorite(Number(p.id)));
     const matchesSearch =
       p.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
