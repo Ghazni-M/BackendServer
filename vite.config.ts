@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
       },
     },
 
+    // Development Server
     server: {
       port: 5173,
       strictPort: true,
@@ -57,15 +58,17 @@ export default defineConfig(({ mode }) => {
       hmr: { overlay: true },
     },
 
+    // Preview server (for `npm run preview`)
     preview: {
       port: 4173,
       strictPort: true,
       host: true,
     },
 
+    // Build Configuration
     build: {
-      outDir: 'dist',                    // ← This is fine (default)
-      emptyOutDir: true,                 // ← Important: clears old build
+      outDir: 'dist',
+      emptyOutDir: true,                 // Clears old files on every build
       sourcemap: !isProduction,
 
       rollupOptions: {
