@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Mail, Phone, Calendar, Trash2, CheckCircle, Clock, X, Reply, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../services/api.js';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog.js';
 
 export const Inquiries = () => {
   const [inquiries, setInquiries] = useState<any[]>([]);
