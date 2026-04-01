@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { Bed, Bath, Square, MapPin, ArrowLeft, Phone, Mail, Calendar, Share2, Heart, Play, Box } from 'lucide-react';
 import { Property } from '../types.js';
 import { api } from '../services/api.js';
-import { ContactForm } from '../components/ContactForm';
+import { ContactForm } from '../components/ContactForm.js';
 
 export const PropertyDetails = () => {
   const { id } = useParams<{ id: string }>();
