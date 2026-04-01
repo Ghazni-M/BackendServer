@@ -490,6 +490,53 @@ async function startServer() {
     res.json({ success: true });
   });
 
+      // Favorites
+  app.get('/api/favorites', authenticate, (req, res) => {
+    const userId = (req as any).user.id;
+    const favorites = db.prepare(`
+      SELECT p.* 
+      FROM properties p 
+      JOIN favorites f ON p.id = f.property_id 
+      WHERE f.user_id = ?
+    `).all(userId);
+    
+    res.json(favorites.map((p: any) => ({
+      ...p,
+      images: JSON.parse(p.images),
+      features: JSON.parse(p.features || '[]'),
+      featured: !!p.featured,
+      acreage: p.acreage || 0,
+      zoning: p.zoning || ''
+    })));
+  });
+
+  app.get('/api/favorites/ids', authenticate, (req, res) => {
+    const userId = (req as any).user.id;
+    const favorites = db.prepare('SELECT property_id FROM favorites WHERE user_id = ?').all(userId) as any[];
+    res.json(favorites.map(f => f.property_id));
+  });
+
+  app.post('/api/favorites/:propertyId', authenticate, (req, res) => {
+    const userId = (req as any).user.id;
+    const propertyId = req.params.propertyId;
+    try {
+      db.prepare('INSERT INTO favorites (user_id, property_id) VALUES (?, ?)').run(userId, propertyId);
+      res.json({ success: true });
+    } catch (err) {
+      // If already favorited, just return success
+      res.json({ success: true });
+    }
+  });
+
+  app.delete('/api/favorites/:propertyId', authenticate, (req, res) => {
+    const userId = (req as any).user.id;
+    const propertyId = req.params.propertyId;
+    db.prepare('DELETE FROM favorites WHERE user_id = ? AND property_id = ?').run(userId, propertyId);
+    res.json({ success: true });
+  });
+
+  
+
   // Blog Posts
   app.get('/api/posts', (req, res) => {
     const posts = db.prepare('SELECT p.*, u.email as author_email FROM posts p LEFT JOIN users u ON p.author_id = u.id ORDER BY created_at DESC').all();
