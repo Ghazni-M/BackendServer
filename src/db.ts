@@ -100,6 +100,16 @@ CREATE TABLE IF NOT EXISTS subscribers (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS favorites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  property_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, property_id),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (property_id) REFERENCES properties(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_properties_status   ON properties(status);
 CREATE INDEX IF NOT EXISTS idx_properties_featured ON properties(featured);
 CREATE INDEX IF NOT EXISTS idx_properties_agent_id ON properties(agent_id);
