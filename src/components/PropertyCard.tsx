@@ -1,39 +1,58 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Bed, Bath, Square, MapPin, Box } from 'lucide-react';
-import { Property } from '../types.js';
+import { Bed, Bath, Square, MapPin, Box, Heart } from 'lucide-react';
+import { Property } from '../types';
 import { motion } from 'motion/react';
+import { useFavorites } from '../lib/useFavorites.js';
 
 interface PropertyCardProps {
   property: Property;
 }
 
 export const PropertyCard: React.FC<PropertyCardProps> = ({ property }) => {
+  const { toggleFavorite, isFavorite } = useFavorites();
+  const isLiked = isFavorite(Number(property.id));
+
+  const handleLike = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFavorite(Number(property.id));
+  };
+
   return (
     <motion.div
       whileHover={{ y: -10 }}
       layoutId={`card-${property.id}`}
-      className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100"
+      className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 group"
     >
       <div className="relative h-64 overflow-hidden">
         <motion.img
           layoutId={`img-${property.id}`}
           src={property.imageUrl}
           alt={property.title}
-          className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute top-4 left-4 bg-brand-navy text-white px-3 py-1 rounded-full text-xs font-medium">
+        <div className="absolute top-4 left-4 bg-brand-navy text-white px-3 py-1 rounded-full text-xs font-medium z-10">
           {property.type}
         </div>
-        <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
+        <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold shadow-sm z-10 ${
           property.status === 'Sold' ? 'bg-red-500 text-white' : 
           property.status === 'Pending' ? 'bg-brand-gold text-brand-navy' : 
           'bg-green-500 text-white'
         }`}>
           {property.status}
         </div>
-        <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-xl text-brand-navy font-bold shadow-lg">
+        
+        <button
+          onClick={handleLike}
+          className={`absolute bottom-4 left-4 p-2 rounded-full bg-white/90 backdrop-blur-sm shadow-lg transition-all z-10 ${isLiked ? 'text-red-500' : 'text-brand-navy hover:text-red-500'}`}
+          title={isLiked ? "Remove from Favorites" : "Add to Favorites"}
+        >
+          <Heart className={`w-5 h-5 ${isLiked ? 'fill-red-500' : ''}`} />
+        </button>
+
+        <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-xl text-brand-navy font-bold shadow-lg z-10">
           ${property.price.toLocaleString()}
         </div>
       </div>
