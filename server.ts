@@ -1,5 +1,11 @@
+// server.ts
+// ────────────────────────────────────────────────────────────────────────
+// Main backend server for Ritchie Realty real estate platform
+// ────────────────────────────────────────────────────────────────────────
+
 import 'dotenv/config';
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
+import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
@@ -16,8 +22,16 @@ import db from './src/db.js';
 import { sendPasswordResetEmail } from './src/utils/email.js';
 import { sendWelcomeEmail } from './src/utils/blogmail.js';
 
+// ────────────────────────────────────────────────────────────────────────
+// ESM __dirname fix
+// ────────────────────────────────────────────────────────────────────────
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ────────────────────────────────────────────────────────────────────────
+// Configuration
+// ────────────────────────────────────────────────────────────────────────
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
@@ -28,27 +42,45 @@ const isProduction = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
 
+// ────────────────────────────────────────────────────────────────────────
 // SQLite tuning
+// ────────────────────────────────────────────────────────────────────────
+
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 db.pragma('synchronous = NORMAL');
 
+// ────────────────────────────────────────────────────────────────────────
 // Upload setup
+// ────────────────────────────────────────────────────────────────────────
+
 const uploadDir = path.join(__dirname, 'public/uploads');
+
+// Ensure directory exists (safe for production)
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer
+// ─────────────────────────────────────────────────────────────
+// Multer Configuration (secure)
+// ─────────────────────────────────────────────────────────────
+
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
+  destination: (_req, _file, cb) => {
+    cb(null, uploadDir);
+  },
+
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+
+    // Normalize extension to lowercase
     const ext = path.extname(file.originalname).toLowerCase();
+
     cb(null, `${uniqueSuffix}${ext}`);
   },
 });
 
+// File filter (ONLY images)
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
   if (!file.mimetype.startsWith('image/')) {
     return cb(new Error('Only image files are allowed'));
@@ -56,98 +88,160 @@ const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
   cb(null, true);
 };
 
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter });
+// Final upload instance
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter,
+});
 
+// ────────────────────────────────────────────────────────────────────────
 // Rate limiters
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
-const apiWriteLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 30 });
+// ────────────────────────────────────────────────────────────────────────
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiWriteLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  message: { success: false, error: 'Too many requests, slow down' },
+});
+
+// ────────────────────────────────────────────────────────────────────────
 // Types
-type AuthUser = { id: number; email: string; name: string; role: string };
+// ────────────────────────────────────────────────────────────────────────
+
+type AuthUser = {
+  id: number;
+  email: string;
+  name: string;
+  role: string; // 'agent' | 'owner' assumed
+};
 
 declare global {
-  namespace Express { interface Request { user?: AuthUser } }
+  namespace Express {
+    interface Request {
+      user?: AuthUser;
+    }
+  }
 }
 
+
+// ────────────────────────────────────────────────────────────────────────
 // Middlewares
+// ────────────────────────────────────────────────────────────────────────
+
 const authenticate: RequestHandler = (req, res, next) => {
   const token = req.cookies?.token;
-  if (!token) return res.status(401).json({ success: false, error: 'Unauthorized – no token' });
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'Unauthorized – no token' });
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = decoded;
     next();
-  } catch {
-    res.clearCookie('token');
+  } catch (err) {
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 };
 
-const restrictTo = (...roles: string[]): RequestHandler => 
-  (req, res, next) => {
+const restrictTo = (...roles: string[]): RequestHandler => {
+  return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ success: false, error: 'Forbidden' });
+      return res.status(403).json({ success: false, error: 'Forbidden – insufficient permissions' });
     }
     next();
   };
+};
 
-const requestTimeout = (ms = 30000) => (req: Request, res: Response, next: NextFunction) => {
-  const timer = setTimeout(() => {
-    if (!res.headersSent) res.status(504).json({ success: false, error: 'Request timeout' });
-  }, ms);
-  res.on('finish', () => clearTimeout(timer));
+const requirePropertyOwnership: RequestHandler = (req, res, next) => {
+  const id = req.params.id;
+  if (!id || isNaN(Number(id))) {
+    return res.status(400).json({ success: false, error: 'Invalid property ID' });
+  }
+
+  const prop = db.prepare('SELECT agent_id FROM properties WHERE id = ?').get(id) as { agent_id: number } | undefined;
+
+  if (!prop) {
+    return res.status(404).json({ success: false, error: 'Property not found' });
+  }
+
+  if (req.user!.role !== 'owner' && prop.agent_id !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You do not own this property' });
+  }
+
+  next();
+};
+
+const requirePostOwnership: RequestHandler = (req, res, next) => {
+  const id = req.params.id;
+  if (!id || isNaN(Number(id))) {
+    return res.status(400).json({ success: false, error: 'Invalid post ID' });
+  }
+
+  const post = db.prepare('SELECT author_id FROM posts WHERE id = ?').get(id) as { author_id: number } | undefined;
+
+  if (!post) {
+    return res.status(404).json({ success: false, error: 'Post not found' });
+  }
+
+  if (req.user!.role !== 'owner' && post.author_id !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You are not the author of this post' });
+  }
+
   next();
 };
 
 // ────────────────────────────────────────────────────────────────────────
+// Server bootstrap
+// ────────────────────────────────────────────────────────────────────────
+
 async function startServer() {
   const app = express();
 
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-  app.use(cors({
-    origin: ['http://localhost:3000', 'http://localhost:5173', 'https://ritchierealty.netlify.app'],
-    credentials: true,
+  // ── Security headers (updated to allow Google Fonts)
+  app.use(helmet({
+    contentSecurityPolicy: isProduction ? true : {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'", 'ws:', 'http://localhost:*'],
+        frameSrc: ["'self'", 'https://www.google.com'],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
   }));
+
+  app.use(cors({
+    origin: isProduction
+      ? process.env.FRONTEND_URL || 'https://yourdomain.com'
+      : ['http://localhost:3000', 'http://localhost:5173'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }));
+
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use('/uploads', express.static(uploadDir));
-  app.use(requestTimeout(30000));
-
-  // Vite only in development
-  let vite: any = null;
-  if (!isProduction) {
-    try {
-      const { createServer } = await import('vite');
-      vite = await createServer({
-        server: { middlewareMode: true, hmr: { port: 24678 } },
-        appType: 'custom',
-        optimizeDeps: { force: true },
-      });
-      app.use(vite.middlewares);
-      console.log('✅ Vite dev middleware attached successfully');
-    } catch (err: any) {
-      console.error('❌ Failed to start Vite dev server:', err.message);
-    }
-  }
-
-  // ====================== ALL YOUR API ROUTES ======================
-  // Auth routes
-  app.post('/api/auth/login', authLimiter, async (req, res) => { /* your full login code */ });
-  app.get('/api/auth/me', /* your full me code */);
-  app.post('/api/auth/logout', (req, res) => { res.clearCookie('token'); res.json({ success: true }); });
-  app.post('/api/auth/forgot-password', authLimiter, /* your code */);
-  app.post('/api/auth/reset-password', authLimiter, /* your code */);
-
-  // Upload
-    app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, error: 'No valid image uploaded' });
-    res.json({ success: true, url: `/uploads/${req.file.filename}` });
-  });
 
   // ── Auth routes ───────────────────────────────────────────────────────
+
   app.post('/api/auth/login', authLimiter, async (req, res) => {
-    // ... (your original login handler - unchanged)
     const { email, password } = req.body;
     if (typeof email !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ success: false, error: 'Invalid input' });
@@ -184,72 +278,80 @@ async function startServer() {
     }
   });
 
-  app.post('/api/auth/logout', (req, res) => {
+
+    app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     res.json({ success: true });
   });
 
   app.get('/api/auth/me', (req, res) => {
     const token = req.cookies?.token;
+
     if (!token) {
-      return res.status(401).json({ success: false, authenticated: false });
+      return res.status(401).json({
+        success: false,
+        authenticated: false,
+        message: 'No authentication token found',
+      });
     }
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
+
+      // Sliding expiration (optional – uncomment to enable)
+      // res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: COOKIE_MAX_AGE_MS, path: '/' });
+
       return res.json({
         success: true,
         authenticated: true,
-        user: { id: decoded.id, email: decoded.email, name: decoded.name, role: decoded.role }
+        user: {
+          id: decoded.id,
+          email: decoded.email,
+          name: decoded.name,
+          role: decoded.role,
+        },
       });
     } catch (err) {
-      res.clearCookie('token');
-      return res.status(401).json({ success: false, authenticated: false });
+      return res.status(401).json({
+        success: false,
+        authenticated: false,
+        message: 'Invalid or expired token',
+      });
     }
   });
- 
- app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
-  const { email } = req.body;
-  if (typeof email !== 'string' || !email.includes('@')) {
-    return res.status(400).json({ success: false, error: 'Invalid email' });
-  }
 
-  try {
-    // Find user
-    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
-    if (!user) {
-      return res.json({ success: true }); // Don't reveal if email exists
+  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+    const { email } = req.body;
+    if (typeof email !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid email' });
     }
 
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    try {
+      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+      if (!user) {
+        return res.json({ success: true });
+      }
 
-    // ✅ FIXED: Now has 2 placeholders and 2 parameters
-    db.prepare(`
-      UPDATE users
-      SET reset_token = ?, 
-          reset_token_expiry = strftime('%s','now') + 3600
-      WHERE id = ?
-    `).run(hashedToken, user.id);
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-    const frontendUrl = process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app';
-    const resetUrl = `${frontendUrl}/reset-password/${rawToken}`;
+      db.prepare(`
+        UPDATE users
+        SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
+        WHERE id = ?
+      `).run(hashedToken, user.id);
 
-    // Fire-and-forget email
-    sendPasswordResetEmail(email, resetUrl)
-      .then(() => console.log(`[PASSWORD RESET] Email queued for ${email}`))
-      .catch((err: any) => {
-        console.error(`[PASSWORD RESET EMAIL FAILED] ${email}:`, err.message || err);
-      });
+      const url = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${rawToken}`;
 
-    res.json({ success: true });
-  } catch (err: any) {
-    console.error('[FORGOT-PASSWORD ERROR]', err.message || err);
-    res.json({ success: true }); // Always return success for security
-  }
-});
+      await sendPasswordResetEmail(email, url);
 
-  
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.json({ success: true });
+    }
+  });
+
   app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
     const { token, newPassword } = req.body;
 
@@ -290,15 +392,11 @@ async function startServer() {
 
   // ── File upload ───────────────────────────────────────────────────────
 
-   app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res, next) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, error: 'No valid image uploaded' });
-      }
-      res.json({ success: true, url: `/uploads/${req.file.filename}` });
-    } catch (err) {
-      next(err);
+  app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No valid image uploaded' });
     }
+    res.json({ success: true, url: `/uploads/${req.file.filename}` });
   });
 
   // ── Users (owner only) ────────────────────────────────────────────────
@@ -490,7 +588,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-      // Favorites
+    // Favorites
   app.get('/api/favorites', authenticate, (req, res) => {
     const userId = (req as any).user.id;
     const favorites = db.prepare(`
@@ -535,8 +633,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  
-
   // Blog Posts
   app.get('/api/posts', (req, res) => {
     const posts = db.prepare('SELECT p.*, u.email as author_email FROM posts p LEFT JOIN users u ON p.author_id = u.id ORDER BY created_at DESC').all();
@@ -576,7 +672,9 @@ async function startServer() {
 app.post('/api/subscribe', async (req, res) => {
   const { email } = req.body;
 
+  // ─────────────────────────────────────────
   // 1. Validate email
+  // ─────────────────────────────────────────
   const isValidEmail =
     typeof email === 'string' &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -591,7 +689,9 @@ app.post('/api/subscribe', async (req, res) => {
   const trimmedEmail = email.trim().toLowerCase();
 
   try {
+    // ─────────────────────────────────────────
     // 2. Check duplicate subscription
+    // ─────────────────────────────────────────
     const existing = db
       .prepare('SELECT 1 FROM subscribers WHERE email = ?')
       .get(trimmedEmail);
@@ -603,7 +703,9 @@ app.post('/api/subscribe', async (req, res) => {
       });
     }
 
-    // 3. Save subscriber to DB (Fixed parameter count)
+    // ─────────────────────────────────────────
+    // 3. Save subscriber to DB
+    // ─────────────────────────────────────────
     db.prepare(`
       INSERT INTO subscribers (email, source, subscribed_at)
       VALUES (?, ?, datetime('now'))
@@ -611,48 +713,66 @@ app.post('/api/subscribe', async (req, res) => {
 
     console.log('📩 New subscriber saved:', trimmedEmail);
 
+    // ─────────────────────────────────────────
     // 4. SMTP Debug Logs
+    // ─────────────────────────────────────────
     console.log('[SUBSCRIBE] SMTP check starting...');
-    console.log('[SUBSCRIBE] EMAIL_HOST:', process.env.EMAIL_HOST || '(missing)');
-    console.log('[SUBSCRIBE] EMAIL_USER:', process.env.EMAIL_USER || '(missing)');
-    console.log('[SUBSCRIBE] EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? 'present' : '(missing)');
+    console.log('[SUBSCRIBE] SMTP_HOST:', process.env.SMTP_HOST || '(missing)');
+    console.log('[SUBSCRIBE] SMTP_USER:', process.env.SMTP_USER || '(missing)');
+    console.log('[SUBSCRIBE] SMTP_PASS:', process.env.SMTP_PASS ? 'present' : '(missing)');
 
     const smtpReady =
-      !!process.env.EMAIL_HOST &&
-      !!process.env.EMAIL_USER &&
-      !!process.env.EMAIL_APP_PASSWORD;
+      !!process.env.SMTP_HOST &&
+      !!process.env.SMTP_USER &&
+      !!process.env.SMTP_PASS;
 
-    // 🔥 FIRE-AND-FORGET EMAIL
+    let emailSent = false;
+
+    // ─────────────────────────────────────────
+    // 5. Send welcome email
+    // ─────────────────────────────────────────
     if (smtpReady) {
-      console.log('[SUBSCRIBE] SMTP ready → sending welcome email in background');
+      console.log('[SUBSCRIBE] SMTP vars present → attempting email send');
 
-      sendWelcomeEmail(trimmedEmail)
-        .then(() => {
-          console.log(`[WELCOME EMAIL] Successfully sent to ${trimmedEmail}`);
-        })
-        .catch((emailErr: any) => {
-          console.error(`[WELCOME EMAIL FAILED] for ${trimmedEmail}`);
-          console.error('Message:', emailErr?.message || emailErr);
-          if (emailErr?.stack) console.error('Stack:', emailErr.stack);
-        });
+      try {
+        console.log('[EMAIL] Calling sendWelcomeEmail for:', trimmedEmail);
+
+        await sendWelcomeEmail(trimmedEmail);
+
+        emailSent = true;
+
+        console.log('[EMAIL] sendWelcomeEmail completed successfully');
+      } catch (emailErr: any) {
+        console.error('[EMAIL-ERROR] sendWelcomeEmail failed:');
+        console.error('Message:', emailErr?.message);
+        console.error('Stack:', emailErr?.stack);
+        console.error('Full error:', JSON.stringify(emailErr, null, 2));
+      }
     } else {
-      console.warn('[SUBSCRIBE] SMTP not configured — skipping welcome email');
+      console.warn('[SUBSCRIBE] SMTP not configured — skipping email');
     }
 
-    // 5. Respond immediately
+    // ─────────────────────────────────────────
+    // 6. Success response
+    // ─────────────────────────────────────────
     return res.status(200).json({
       success: true,
       message: 'Thank you! You are now subscribed.',
-      emailSent: smtpReady,
+      emailSent,
     });
-  } catch (err: any) {
-    console.error('❌ Subscribe error:', err.message || err);
+  } catch (err) {
+    // ─────────────────────────────────────────
+    // 7. Server error
+    // ─────────────────────────────────────────
+    console.error('❌ Subscribe error:', err);
+
     return res.status(500).json({
       success: false,
       error: 'Failed to subscribe',
     });
   }
 });
+
   // ── Dashboard Stats ───────────────────────────────────────────────────
 
   // Dashboard Stats
@@ -673,47 +793,35 @@ app.post('/api/subscribe', async (req, res) => {
       recentActivity
     });
   });
+  // ── Vite / SPA serving ────────────────────────────────────────────────
 
-
-    // ====================== PRODUCTION FRONTEND SERVING ======================
-  if (isProduction) {
-    const frontendDist = path.join(__dirname, 'dist');   // Vite build output
-
-    app.use(express.static(frontendDist));
-
-    // SPA fallback - crucial for React Router
-    app.get('*', (req, res) => {
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ success: false, error: 'API endpoint not found' });
-      }
-      res.sendFile(path.join(frontendDist, 'index.html'));
+  if (!isProduction) {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
     });
+    app.use(vite.middlewares);
   } else {
-    // Development SPA fallback
-    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
-      if (req.path.startsWith('/api/')) return next();
-      if (!vite) return res.status(503).send('Vite not started');
-
-      try {
-        const template = await vite.transformIndexHtml(req.originalUrl, 
-          fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8')
-        );
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (e: any) {
-        vite.ssrFixStacktrace?.(e);
-        next(e);
-      }
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist/index.html'));
     });
   }
 
-  // Global error handler
-  app.use((err: any, _req: Request, res: Response) => {
+  // ── Global error handler ──────────────────────────────────────────────
+
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error('Global error:', err);
-    res.status(err.status || 500).json({ success: false, error: err.message || 'Internal server error' });
+    const status = err.status || 500;
+    const message = status === 500 ? 'Internal server error' : (err.message || 'Something went wrong');
+    res.status(status).json({ success: false, error: message });
   });
 
+  // ── Start server ──────────────────────────────────────────────────────
+
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://localhost:${PORT} | Mode: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
