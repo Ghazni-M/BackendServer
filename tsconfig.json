@@ -1,29 +1,22 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "./dist",
-    "strict": true,
+    "rootDir": "./",
     "esModuleInterop": true,
+    "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-
-    // React JSX support
-    "jsx": "react-jsx",
-
-    // Vite + Node support
-    "types": ["vite/client", "node"],
-    "resolveJsonModule": true,
-    "declaration": false
+    "types": ["node"]
   },
-  "include": [
-    "server.ts",           // Server file in root
-    "src/**/*",            // All frontend code
-    "vite.config.ts"       // Vite config
-  ],
+  "include": ["server.ts", "src/**/*.ts"],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "**/*.tsx",           // ← This line excludes all React files
+    "src/components/**",
+    "src/pages/**"
   ]
 }
