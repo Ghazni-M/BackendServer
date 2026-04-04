@@ -68,7 +68,7 @@ declare global {
   namespace Express { interface Request { user?: AuthUser } }
 }
 
-// Auth middleware
+// ====================== MIDDLEWARES ======================
 const authenticate: RequestHandler = (req, res, next) => {
   const token = req.cookies?.token;
   if (!token) return res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -81,6 +81,15 @@ const authenticate: RequestHandler = (req, res, next) => {
     res.clearCookie('token');
     return res.status(401).json({ success: false, error: 'Invalid token' });
   }
+};
+
+const restrictTo = (...roles: string[]): RequestHandler => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden – insufficient permissions' });
+    }
+    next();
+  };
 };
 
 // ====================== SERVER SETUP ======================
@@ -98,325 +107,271 @@ app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use('/uploads', express.static(uploadDir));
 
-  // ── Auth routes ───────────────────────────────────────────────────────
+// ====================== API ROUTES ======================
 
-  app.post('/api/auth/login', authLimiter, async (req, res) => {
-    const { email, password } = req.body;
-    if (typeof email !== 'string' || typeof password !== 'string') {
-      return res.status(400).json({ success: false, error: 'Invalid input' });
+// Auth routes
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ success: false, error: 'Invalid input' });
+  }
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    try {
-      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
-      if (!user || !(await bcrypt.compare(password, user.password))) {
-        return res.status(401).json({ success: false, error: 'Invalid credentials' });
-      }
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      JWT_SECRET as string,
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
+    );
 
-      const token = jwt.sign(
-        { id: user.id, email: user.email, name: user.name, role: user.role },
-        JWT_SECRET as string,
-        { expiresIn: ACCESS_TOKEN_EXPIRY }
-      );
-
-      res.cookie('token', token, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'none' : 'lax',
-        maxAge: COOKIE_MAX_AGE_MS,
-        path: '/',
-      });
-
-      res.json({
-        success: true,
-        accessToken: token,
-        user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      });
-    } catch (err) {
-      console.error('Login error:', err);
-      res.status(500).json({ success: false, error: 'Server error' });
-    }
-  });
-
-
-    app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('token');
-    res.json({ success: true });
-  });
-
-  app.get('/api/auth/me', (req, res) => {
-    const token = req.cookies?.token;
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        authenticated: false,
-        message: 'No authentication token found',
-      });
-    }
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET as string) as AuthUser;
-
-      // Sliding expiration (optional – uncomment to enable)
-      // res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: COOKIE_MAX_AGE_MS, path: '/' });
-
-      return res.json({
-        success: true,
-        authenticated: true,
-        user: {
-          id: decoded.id,
-          email: decoded.email,
-          name: decoded.name,
-          role: decoded.role,
-        },
-      });
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        authenticated: false,
-        message: 'Invalid or expired token',
-      });
-    }
-  });
-
-  app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
-    const { email } = req.body;
-    if (typeof email !== 'string') {
-      return res.status(400).json({ success: false, error: 'Invalid email' });
-    }
-
-    try {
-      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
-      if (!user) {
-        return res.json({ success: true });
-      }
-
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
-
-      db.prepare(`
-        UPDATE users
-        SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600
-        WHERE id = ?
-      `).run(hashedToken, user.id);
-
-      const url = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${rawToken}`;
-
-      await sendPasswordResetEmail(email, url);
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res.json({ success: true });
-    }
-  });
-
-  app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
-    const { token, newPassword } = req.body;
-
-    if (!token || typeof newPassword !== 'string' || newPassword.length < 8) {
-      return res.status(400).json({ success: false, error: 'Invalid or weak password' });
-    }
-
-    if (!/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      return res.status(400).json({ success: false, error: 'Password must contain uppercase and number' });
-    }
-
-    try {
-      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-
-      const user = db.prepare(`
-        SELECT * FROM users 
-        WHERE reset_token = ? AND reset_token_expiry > strftime('%s','now')
-      `).get(hashedToken) as any;
-
-      if (!user) {
-        return res.status(400).json({ success: false, error: 'Invalid or expired token' });
-      }
-
-      const hashedPassword = await bcrypt.hash(newPassword, 12);
-
-      db.prepare(`
-        UPDATE users
-        SET password = ?, reset_token = NULL, reset_token_expiry = NULL
-        WHERE id = ?
-      `).run(hashedPassword, user.id);
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ success: false, error: 'Server error' });
-    }
-  });
-
-  // ── File upload ───────────────────────────────────────────────────────
-
-  app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No valid image uploaded' });
-    }
-    res.json({ success: true, url: `/uploads/${req.file.filename}` });
-  });
-
-  // ── Users (owner only) ────────────────────────────────────────────────
-
-  app.get('/api/users', authenticate, restrictTo('owner'), (_req, res) => {
-    const users = db.prepare('SELECT id, name, email, role FROM users').all();
-    res.json({ success: true, users });
-  });
-
-  // ── CREATE USER (owner only) ──────────────────────────────────────────
-  app.post('/api/users', authenticate, restrictTo('owner'), async (req, res) => {
-    const { name, email, password, role } = req.body;
-
-    if (!name?.trim() || !email?.trim() || !password?.trim() || !role) {
-      return res.status(400).json({ success: false, error: 'Name, email, password, and role are required' });
-    }
-
-    if (!['agent', 'owner'].includes(role)) {
-      return res.status(400).json({ success: false, error: 'Invalid role. Must be "agent" or "owner"' });
-    }
-
-    try {
-      const existing = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email.trim().toLowerCase());
-      if (existing) {
-        return res.status(409).json({ success: false, error: 'Email already in use' });
-      }
-
-      const hashedPassword = await bcrypt.hash(password.trim(), 12);
-
-      const result = db.prepare(`
-        INSERT INTO users (name, email, password, role, created_at)
-        VALUES (?, ?, ?, ?, datetime('now'))
-      `).run(name.trim(), email.trim().toLowerCase(), hashedPassword, role);
-
-      res.status(201).json({
-        success: true,
-        message: 'User created successfully',
-        id: result.lastInsertRowid,
-      });
-    } catch (err) {
-      console.error('Create user error:', err);
-      res.status(500).json({ success: false, error: 'Failed to create user' });
-    }
-  });
-
-  // ── UPDATE USER (owner only) ──────────────────────────────────────────
-  app.put('/api/users/:id', authenticate, restrictTo('owner'), async (req, res) => {
-    const { name, email, password, role } = req.body;
-    const id = req.params.id;
-
-    if (!name?.trim() || !email?.trim() || !role) {
-      return res.status(400).json({ success: false, error: 'Name, email, and role are required' });
-    }
-
-    if (!['agent', 'owner'].includes(role)) {
-      return res.status(400).json({ success: false, error: 'Invalid role' });
-    }
-
-    try {
-      const updates: string[] = [];
-      const params: any[] = [];
-
-      updates.push('name = ?'); params.push(name.trim());
-      updates.push('email = ?'); params.push(email.trim().toLowerCase());
-      updates.push('role = ?'); params.push(role);
-
-      if (password?.trim()) {
-        const hashed = await bcrypt.hash(password.trim(), 12);
-        updates.push('password = ?');
-        params.push(hashed);
-      }
-
-      params.push(id);
-
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-      const result = db.prepare(query).run(...params);
-
-      if (result.changes === 0) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-
-      res.json({ success: true, message: 'User updated successfully' });
-    } catch (err) {
-      console.error('Update user error:', err);
-      res.status(500).json({ success: false, error: 'Failed to update user' });
-    }
-  });
-
-  // ── DELETE USER (owner only) ──────────────────────────────────────────
-  app.delete('/api/users/:id', authenticate, restrictTo('owner'), (req, res) => {
-    const id = req.params.id;
-
-    try {
-      const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
-
-      if (result.changes === 0) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-
-      res.json({ success: true, message: 'User deleted successfully' });
-    } catch (err) {
-      console.error('Delete user error:', err);
-      res.status(500).json({ success: false, error: 'Failed to delete user' });
-    }
-  });
-
-  // ── Properties ────────────────────────────────────────────────────────
-
-  // Properties
-  app.get('/api/properties', (req, res) => {
-    const properties = db.prepare('SELECT * FROM properties ORDER BY created_at DESC').all();
-    res.json(properties.map((p: any) => ({
-      ...p,
-      images: JSON.parse(p.images),
-      features: JSON.parse(p.features || '[]'),
-      featured: !!p.featured,
-      acreage: p.acreage || 0,
-      zoning: p.zoning || ''
-    })));
-  });
-
-  app.get('/api/properties/:id', (req, res) => {
-    const property = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id) as any;
-    if (!property) return res.status(404).json({ error: 'Property not found' });
-    res.json({
-      ...property,
-      images: JSON.parse(property.images),
-      features: JSON.parse(property.features || '[]'),
-      featured: !!property.featured,
-      acreage: property.acreage || 0,
-      zoning: property.zoning || ''
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      maxAge: COOKIE_MAX_AGE_MS,
+      path: '/',
     });
-  });
 
-  app.post('/api/properties', authenticate, (req, res) => {
-    const { title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning } = req.body;
-    const result = db.prepare(`
-      INSERT INTO properties (title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning, agent_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(title, price, address, city, state, zip, beds, baths, sqft, type, status, featured ? 1 : 0, imageUrl, JSON.stringify(images), videoUrl, virtualTourUrl, description, JSON.stringify(features || []), acreage || 0, zoning || '', (req as any).user.id);
-    
-    res.json({ id: result.lastInsertRowid });
-  });
+    res.json({
+      success: true,
+      accessToken: token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
 
-  app.put('/api/properties/:id', authenticate, (req, res) => {
-    const { title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning } = req.body;
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('token');
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = req.cookies?.token;
+  if (!token) return res.status(401).json({ success: false, authenticated: false });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    res.json({ success: true, authenticated: true, user: decoded });
+  } catch {
+    res.clearCookie('token');
+    res.status(401).json({ success: false, authenticated: false });
+  }
+});
+
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (typeof email !== 'string') return res.status(400).json({ success: false, error: 'Invalid email' });
+
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+    if (!user) return res.json({ success: true });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
     db.prepare(`
-      UPDATE properties 
-      SET title = ?, price = ?, address = ?, city = ?, state = ?, zip = ?, beds = ?, baths = ?, sqft = ?, type = ?, status = ?, featured = ?, imageUrl = ?, images = ?, videoUrl = ?, virtualTourUrl = ?, description = ?, features = ?, acreage = ?, zoning = ?
-      WHERE id = ?
-    `).run(title, price, address, city, state, zip, beds, baths, sqft, type, status, featured ? 1 : 0, imageUrl, JSON.stringify(images), videoUrl, virtualTourUrl, description, JSON.stringify(features || []), acreage || 0, zoning || '', req.params.id);
-    
-    res.json({ success: true });
-  });
+      UPDATE users SET reset_token = ?, reset_token_expiry = strftime('%s','now') + 3600 WHERE id = ?
+    `).run(hashedToken, user.id);
 
-  app.delete('/api/properties/:id', authenticate, (req, res) => {
-    db.prepare('DELETE FROM properties WHERE id = ?').run(req.params.id);
-    res.json({ success: true });
-  });
+    const url = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${rawToken}`;
+    await sendPasswordResetEmail(email, url);
 
- // Inquiries
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ success: true });
+  }
+});
+
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ success: false, error: 'Invalid or weak password' });
+  }
+
+  if (!/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    return res.status(400).json({ success: false, error: 'Password must contain uppercase and number' });
+  }
+
+  try {
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const user = db.prepare(`
+      SELECT * FROM users WHERE reset_token = ? AND reset_token_expiry > strftime('%s','now')
+    `).get(hashedToken) as any;
+
+    if (!user) return res.status(400).json({ success: false, error: 'Invalid or expired token' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    db.prepare(`
+      UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?
+    `).run(hashedPassword, user.id);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// File upload
+app.post('/api/upload', authenticate, apiWriteLimiter, upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, error: 'No valid image uploaded' });
+  res.json({ success: true, url: `/uploads/${req.file.filename}` });
+});
+
+// Users (owner only)
+app.get('/api/users', authenticate, restrictTo('owner'), (_req, res) => {
+  const users = db.prepare('SELECT id, name, email, role FROM users').all();
+  res.json({ success: true, users });
+});
+
+app.post('/api/users', authenticate, restrictTo('owner'), async (req, res) => {
+  const { name, email, password, role } = req.body;
+  if (!name?.trim() || !email?.trim() || !password?.trim() || !role) {
+    return res.status(400).json({ success: false, error: 'Name, email, password, and role are required' });
+  }
+
+  if (!['agent', 'owner'].includes(role)) {
+    return res.status(400).json({ success: false, error: 'Invalid role' });
+  }
+
+  try {
+    const existing = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email.trim().toLowerCase());
+    if (existing) return res.status(409).json({ success: false, error: 'Email already in use' });
+
+    const hashedPassword = await bcrypt.hash(password.trim(), 12);
+    const result = db.prepare(`
+      INSERT INTO users (name, email, password, role, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(name.trim(), email.trim().toLowerCase(), hashedPassword, role);
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      id: result.lastInsertRowid,
+    });
+  } catch (err) {
+    console.error('Create user error:', err);
+    res.status(500).json({ success: false, error: 'Failed to create user' });
+  }
+});
+
+app.put('/api/users/:id', authenticate, restrictTo('owner'), async (req, res) => {
+  const { name, email, password, role } = req.body;
+  const id = req.params.id;
+
+  if (!name?.trim() || !email?.trim() || !role) {
+    return res.status(400).json({ success: false, error: 'Name, email, and role are required' });
+  }
+
+  if (!['agent', 'owner'].includes(role)) {
+    return res.status(400).json({ success: false, error: 'Invalid role' });
+  }
+
+  try {
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    updates.push('name = ?'); params.push(name.trim());
+    updates.push('email = ?'); params.push(email.trim().toLowerCase());
+    updates.push('role = ?'); params.push(role);
+
+    if (password?.trim()) {
+      const hashed = await bcrypt.hash(password.trim(), 12);
+      updates.push('password = ?');
+      params.push(hashed);
+    }
+
+    params.push(id);
+
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+    const result = db.prepare(query).run(...params);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    res.json({ success: true, message: 'User updated successfully' });
+  } catch (err) {
+    console.error('Update user error:', err);
+    res.status(500).json({ success: false, error: 'Failed to update user' });
+  }
+});
+
+app.delete('/api/users/:id', authenticate, restrictTo('owner'), (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    if (result.changes === 0) return res.status(404).json({ success: false, error: 'User not found' });
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete user' });
+  }
+});
+
+// Properties
+app.get('/api/properties', (req, res) => {
+  const properties = db.prepare('SELECT * FROM properties ORDER BY created_at DESC').all();
+  res.json(properties.map((p: any) => ({
+    ...p,
+    images: JSON.parse(p.images),
+    features: JSON.parse(p.features || '[]'),
+    featured: !!p.featured,
+    acreage: p.acreage || 0,
+    zoning: p.zoning || ''
+  })));
+});
+
+app.get('/api/properties/:id', (req, res) => {
+  const property = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id) as any;
+  if (!property) return res.status(404).json({ error: 'Property not found' });
+  res.json({
+    ...property,
+    images: JSON.parse(property.images),
+    features: JSON.parse(property.features || '[]'),
+    featured: !!property.featured,
+    acreage: property.acreage || 0,
+    zoning: property.zoning || ''
+  });
+});
+
+app.post('/api/properties', authenticate, (req, res) => {
+  const { title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning } = req.body;
+  const result = db.prepare(`
+    INSERT INTO properties (title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning, agent_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(title, price, address, city, state, zip, beds, baths, sqft, type, status, featured ? 1 : 0, imageUrl, JSON.stringify(images), videoUrl, virtualTourUrl, description, JSON.stringify(features || []), acreage || 0, zoning || '', (req as any).user.id);
+  
+  res.json({ id: result.lastInsertRowid });
+});
+
+app.put('/api/properties/:id', authenticate, (req, res) => {
+  const { title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning } = req.body;
+  db.prepare(`
+    UPDATE properties 
+    SET title = ?, price = ?, address = ?, city = ?, state = ?, zip = ?, beds = ?, baths = ?, sqft = ?, type = ?, status = ?, featured = ?, imageUrl = ?, images = ?, videoUrl = ?, virtualTourUrl = ?, description = ?, features = ?, acreage = ?, zoning = ?
+    WHERE id = ?
+  `).run(title, price, address, city, state, zip, beds, baths, sqft, type, status, featured ? 1 : 0, imageUrl, JSON.stringify(images), videoUrl, virtualTourUrl, description, JSON.stringify(features || []), acreage || 0, zoning || '', req.params.id);
+  
+  res.json({ success: true });
+});
+
+app.delete('/api/properties/:id', authenticate, (req, res) => {
+  db.prepare('DELETE FROM properties WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Inquiries, Favorites, Posts, Subscribe, Stats — add them here if needed
+
+// Inquiries
   app.get('/api/inquiries', authenticate, (req, res) => {
     const inquiries = db.prepare(`
       SELECT i.*, p.title as property_title 
@@ -652,14 +607,13 @@ app.post('/api/subscribe', async (req, res) => {
       recentActivity
     });
   });
-  // ── Vite / SPA serving ────────────────────────────────────────────────
 
-  if (isProduction) {
+// ====================== PRODUCTION FRONTEND SERVING ======================
+if (isProduction) {
   const distPath = path.join(__dirname, 'dist');
 
   app.use(express.static(distPath));
 
-  // SPA fallback for React Router
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ success: false, error: 'API endpoint not found' });
@@ -667,7 +621,7 @@ app.post('/api/subscribe', async (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 } else {
-  console.log('⚠️ Development mode - Vite middleware disabled in this version');
+  console.log('⚠️ Development mode');
 }
 
 app.use((err: any, _req: Request, res: Response) => {
