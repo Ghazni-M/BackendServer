@@ -566,7 +566,7 @@ app.post('/api/auth/change-password', authenticate, async (req: Request, res: Re
     if (!isMatch) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
-    
+
     // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedNewPassword = await bcrypt.hash(newPassword, salt);
