@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
 
-    // Base path - important for Netlify/Render
+    // Base path for production deployments
     base: '/',
 
     resolve: {
@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      chunkSizeWarningLimit: 1200,
+      chunkSizeWarningLimit: 1000,
     },
 
     css: {
