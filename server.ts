@@ -228,7 +228,7 @@ async function startServer() {
 
   app.use(cors({
     origin: isProduction
-      ? process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app/'
+      ? process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app'
       : ['http://localhost:3000', 'http://localhost:5173'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -289,7 +289,6 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
       httpOnly: true,
       secure: isProduction,                    // false on localhost
       sameSite: isProduction ? 'none' : 'lax', // 'lax' works best during development
-      maxAge: 7 * 24 * 60 * 60 * 1000,         // 7 days
       path: '/',
     });
 
@@ -624,7 +623,7 @@ app.post('/api/auth/change-password', authenticate, async (req: Request, res: Re
     res.json({ id: result.lastInsertRowid });
   });
 
-  app.put('/api/properties/:id', authenticate, (req, res) => {
+  app.put( '/api/properties/:id', authenticate, requirePropertyOwnership, (req, res) => {
     const { title, price, address, city, state, zip, beds, baths, sqft, type, status, featured, imageUrl, images, videoUrl, virtualTourUrl, description, features, acreage, zoning } = req.body;
     db.prepare(`
       UPDATE properties 
@@ -635,7 +634,7 @@ app.post('/api/auth/change-password', authenticate, async (req: Request, res: Re
     res.json({ success: true });
   });
 
-  app.delete('/api/properties/:id', authenticate, (req, res) => {
+  app.delete( '/api/properties/:id', authenticate, requirePropertyOwnership, (req, res) => {
     db.prepare('DELETE FROM properties WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
@@ -737,20 +736,21 @@ app.post('/api/auth/change-password', authenticate, async (req: Request, res: Re
     res.json({ id: result.lastInsertRowid });
   });
 
-  app.put('/api/posts/:id', authenticate, (req, res) => {
+
+  app.put( '/api/posts/:id', authenticate, requirePostOwnership, (req, res) => {
     const { title, slug, excerpt, content, imageUrl } = req.body;
     db.prepare(`
-      UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, imageUrl = ? WHERE id = ?
+      UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, imageUrl = ? WHERE id =?
     `).run(title, slug, excerpt, content, imageUrl, req.params.id);
     res.json({ success: true });
   });
 
-  app.delete('/api/posts/:id', authenticate, (req, res) => {
+ app.delete( '/api/posts/:id',authenticate,requirePostOwnership,(req, res) => {
     db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
 
-// ── Newsletter subscription ────────────────────────────────────────────
+// ── Newsletter subscription ────── //
 
 app.post('/api/subscribe', async (req, res) => {
   const { email } = req.body;
