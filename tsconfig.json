@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
 
-    "types": ["node"],                    // ← Add this line
+    "types": ["node"],                   
 
     "outDir": "./dist",
     "rootDir": "./",
