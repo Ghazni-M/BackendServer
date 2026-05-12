@@ -244,6 +244,8 @@ async function startServer() {
   // ────────────────────────────────────────────────────────────────
 // LOGIN ROUTE - IMPROVED
 // ────────────────────────────────────────────────────────────────
+app.set('trust proxy', 1);
+  
 app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
