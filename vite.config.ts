@@ -1,3 +1,4 @@
+// vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -9,7 +10,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
 
-    // Critical for Netlify deployment
+    // Base path - important for Netlify/Render
     base: '/',
 
     resolve: {
@@ -22,7 +23,6 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
       host: true,
-
       proxy: {
         '/api': {
           target: 'https://backendserver-k3hd.onrender.com',
