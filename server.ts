@@ -209,36 +209,82 @@ async function startServer() {
   const app = express();
 
   // ── Security headers (updated to allow Google Fonts)
-  app.use(helmet({
-    contentSecurityPolicy: isProduction ? true : {
+  app.set('trust proxy', 1);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", 'ws:', 'http://localhost:*'],
-        frameSrc: ["'self'", 'https://www.google.com'],
+
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+        ],
+
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://fonts.googleapis.com',
+        ],
+
+        fontSrc: [
+          "'self'",
+          'https://fonts.gstatic.com',
+        ],
+
+        imgSrc: [
+          "'self'",
+          'data:',
+          'https:',
+        ],
+
+        connectSrc: isProduction
+          ? [
+              "'self'",
+              'https://backendserver-k3hd.onrender.com',
+            ]
+          : [
+              "'self'",
+              'ws:',
+              'http://localhost:*',
+            ],
+
+        frameSrc: [
+          "'self'",
+          'https://www.google.com',
+        ],
+
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
       },
     },
-  }));
+  })
+);
 
-  app.use(cors({
+app.use(
+  cors({
     origin: isProduction
-      ? process.env.FRONTEND_URL || 'https://ritchierealty.netlify.app'
+      ? 'https://ritchierealty.netlify.app'
       : ['http://localhost:3000', 'http://localhost:5173'],
+
     credentials: true,
+
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }));
 
-  app.use(express.json({ limit: '1mb' }));
-  app.use(cookieParser());
-  app.use('/uploads', express.static(uploadDir));
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+    ],
+  })
+);
 
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
+app.use('/uploads', express.static(uploadDir));
+  
   // ── Auth routes ───────────────────────────────────────────────────────
 
   // ────────────────────────────────────────────────────────────────
