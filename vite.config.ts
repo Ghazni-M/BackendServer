@@ -4,60 +4,25 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
-export default defineConfig(({ mode }) => {
-  const isProduction = mode === 'production';
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
 
-  return {
-    plugins: [react(), tailwindcss()],
+  base: '/',
 
-    // Base path for production deployments
-    base: '/',
-
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
     },
+  },
 
-    server: {
-      port: 5173,
-      strictPort: true,
-      host: true,
-      proxy: {
-        '/api': {
-          target: 'https://backendserver-k3hd.onrender.com',
-          changeOrigin: true,
-          secure: true,
-        },
-        '/uploads': {
-          target: 'https://backendserver-k3hd.onrender.com',
-          changeOrigin: true,
-          secure: true,
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom', 'lucide-react'],
         },
       },
     },
-
-    preview: {
-      port: 4173,
-      strictPort: true,
-      host: true,
-    },
-
-    build: {
-      outDir: 'dist',
-      sourcemap: !isProduction,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-          },
-        },
-      },
-      chunkSizeWarningLimit: 1000,
-    },
-
-    css: {
-      devSourcemap: true,
-    },
-  };
+  },
 });
