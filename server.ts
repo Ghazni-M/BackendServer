@@ -880,33 +880,34 @@ app.post('/api/subscribe', async (req, res) => {
   });
   // ── Vite / SPA serving ────────────────────────────────────────────────
 
-  if (!isProduction) {
+  // ====================== PRODUCTION STATIC SERVING (FIXED) ======================
+  if (isProduction) {
+    const distPath = path.resolve(__dirname, '../dist');   // ← Correct path
+
+    app.use(express.static(distPath));
+
+    app.get('*', (req: Request, res: Response) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ success: false, error: 'API endpoint not found' });
+      }
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist/index.html'));
-    });
   }
 
-  // ── Global error handler ──────────────────────────────────────────────
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  // Global Error Handler
+  app.use((err: any, _req: Request, res: Response) => {
     console.error('Global error:', err);
-    const status = err.status || 500;
-    const message = status === 500 ? 'Internal server error' : (err.message || 'Something went wrong');
-    res.status(status).json({ success: false, error: message });
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
   });
 
-  // ── Start server ──────────────────────────────────────────────────────
-
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🚀 Server running on port ${PORT}`);
   });
 }
 
